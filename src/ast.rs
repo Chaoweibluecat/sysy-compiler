@@ -1,5 +1,3 @@
-use koopa::ir::{ FunctionData, Program, Type };
-
 #[derive(Debug)]
 pub struct CompUnit {
     pub func_def: FuncDef,

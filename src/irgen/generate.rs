@@ -50,6 +50,7 @@ impl GenerateProgram for Block {
         Ok(())
     }
 }
+
 impl GenerateProgram for Stmt {
     type Out = ();
 
