@@ -32,7 +32,7 @@ fn main() -> Result<()> {
     let prog = generate_program(&comp_unit).unwrap();
 
     KoopaGenerator::from_path(output).unwrap().generate_on(&prog).unwrap();
-    generate_asm(&prog, &output_2).expect("failed to generate asm");
+    // generate_asm(&prog, &output_2).expect("failed to generate asm");
     // prog.
     println!("{:#?}", comp_unit);
 

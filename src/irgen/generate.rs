@@ -3,8 +3,12 @@ use koopa::ir::{
     FunctionData,
     Program,
     Type,
+    Value,
 };
-use crate::{ ast::{ CompUnit, FuncDef, Stmt, Block }, irgen::{ Result, Context } };
+use crate::{
+    ast::{ Block, CompUnit, Exp, FuncDef, PrimaryExp, Stmt, UnaryExp },
+    irgen::{ Context, Result },
+};
 
 pub trait GenerateProgram {
     type Out;
@@ -58,10 +62,40 @@ impl GenerateProgram for Stmt {
         let cur_func_id = ctx.curr_fuc.unwrap();
         let func = program.func_mut(cur_func_id);
         let cur_block_id = ctx.curr_block.unwrap();
-        let res_val = func.dfg_mut().new_value().integer(self.num);
-        let ret = func.dfg_mut().new_value().ret(Some(res_val));
-        func.layout_mut().bb_mut(cur_block_id).insts_mut().push_key_back(ret);
-
+        // let res_val = func.dfg_mut().new_value().integer(self.exp);
+        // let ret = func.dfg_mut().new_value().ret(Some(res_val));
+        // func.layout_mut().bb_mut(cur_block_id).insts_mut().push_key_back(ret);
         Ok(())
+    }
+}
+
+impl GenerateProgram for Exp {
+    type Out = ();
+
+    fn generate(&self, program: &mut Program, ctx: &mut Context) -> Result<Self::Out> {
+        match self {
+            Exp::UnaryExp(unary_exp) => {
+                unary_exp;
+            }
+            _ => (),
+        }
+        Ok(())
+    }
+}
+
+impl GenerateProgram for UnaryExp {
+    type Out = Value;
+
+    fn generate(&self, program: &mut Program, ctx: &mut Context) -> Result<Self::Out> {
+        match self {
+            UnaryExp::PrimaryExp(prim_exp) => {
+                // prim_exp.
+            }
+            UnaryExp::UnaryExp(op, exp) => {
+                let val = exp.generate(program, ctx);
+                // ctx.ctx.curr_fuc
+            }
+        }
+        Ok(1)
     }
 }

@@ -1,5 +1,3 @@
 int main() {
-    /* I an comment 
-    asdasdasd */
-    return 2;
+    return (+ + !6);
 }

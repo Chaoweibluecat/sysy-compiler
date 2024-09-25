@@ -7,6 +7,29 @@ pub struct CompUnit {
 pub enum FuncType {
     Int,
 }
+#[derive(Debug)]
+pub enum Exp {
+    UnaryExp(UnaryExp),
+}
+
+#[derive(Debug)]
+pub enum UnaryExp {
+    PrimaryExp(PrimaryExp),
+    UnaryExp(UnaryOp, Box<UnaryExp>),
+}
+
+#[derive(Debug)]
+pub enum PrimaryExp {
+    Number(i32),
+    Exp(Box<Exp>),
+}
+
+#[derive(Debug)]
+pub enum UnaryOp {
+    POSITIVE,
+    NEGATIVE,
+    NOT,
+}
 
 #[derive(Debug)]
 pub struct FuncDef {
@@ -22,5 +45,5 @@ pub struct Block {
 
 #[derive(Debug)]
 pub struct Stmt {
-    pub num: i32,
+    pub exp: Exp,
 }
