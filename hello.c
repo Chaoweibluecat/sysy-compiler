@@ -1,3 +1,4 @@
-int main() {
-    return (+ + !6);
+int main()
+{
+    return (- -!6);
 }
