@@ -5,9 +5,9 @@ use lalrpop_util::lalrpop_mod;
 use std::env::args;
 use std::fs::read_to_string;
 use std::io::Result;
+mod asmgen;
 mod ast;
 mod irgen;
-mod asmgen;
 
 // 引用 lalrpop 生成的解析器
 // 因为我们刚刚创建了 sysy.lalrpop, 所以模块名是 sysy
@@ -27,12 +27,15 @@ fn main() -> Result<()> {
     let input = read_to_string(input)?;
 
     // parse input file
-    let comp_unit = sysy::CompUnitParser::new().parse(&input).unwrap();
+    let comp_unit: ast::CompUnit = sysy::CompUnitParser::new().parse(&input).unwrap();
 
     let prog = generate_program(&comp_unit).unwrap();
 
-    KoopaGenerator::from_path(output).unwrap().generate_on(&prog).unwrap();
-    // generate_asm(&prog, &output_2).expect("failed to generate asm");
+    KoopaGenerator::from_path(output)
+        .unwrap()
+        .generate_on(&prog)
+        .unwrap();
+    generate_asm(&prog, &output_2).expect("failed to generate asm");
     // prog.
     println!("{:#?}", comp_unit);
 

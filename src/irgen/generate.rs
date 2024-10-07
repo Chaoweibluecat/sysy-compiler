@@ -1,5 +1,7 @@
+use std::ops::Add;
+
 use crate::{
-    ast::{Block, CompUnit, Exp, FuncDef, PrimaryExp, Stmt, UnaryExp, UnaryOp},
+    ast::*,
     irgen::{Context, Result},
 };
 use koopa::ir::{
@@ -81,8 +83,139 @@ impl GenerateProgram for Exp {
 
     fn generate(&self, program: &mut Program, ctx: &mut Context) -> Result<Self::Out> {
         match self {
-            Exp::UnaryExp(unary_exp) => unary_exp.generate(program, ctx),
+            Exp::LOrExp(add_exp) => add_exp.generate(program, ctx),
             _ => unreachable!(),
+        }
+    }
+}
+
+impl GenerateProgram for AddExp {
+    type Out = Value;
+    fn generate(&self, program: &mut Program, ctx: &mut Context) -> Result<Self::Out> {
+        match self {
+            AddExp::MulExp(mul_exp) => mul_exp.generate(program, ctx),
+            AddExp::AddExp(left, op, right) => {
+                let left_value = left.generate(program, ctx)?;
+                let right_value = right.generate(program, ctx)?;
+                let koopa_op: BinaryOp = match op {
+                    AddOp::Add => BinaryOp::Add,
+                    AddOp::Minus => BinaryOp::Sub,
+                };
+                let func_data = program.func_mut(ctx.curr_fuc.unwrap());
+                let res = func_data
+                    .dfg_mut()
+                    .new_value()
+                    .binary(koopa_op, left_value, right_value);
+                func_data
+                    .layout_mut()
+                    .bb_mut(ctx.curr_block.unwrap())
+                    .insts_mut()
+                    .push_key_back(res);
+                Ok(res)
+            }
+        }
+    }
+}
+
+impl GenerateProgram for MulExp {
+    type Out = Value;
+    fn generate(&self, program: &mut Program, ctx: &mut Context) -> Result<Self::Out> {
+        match self {
+            MulExp::UnaryExp(unary_Exp) => unary_Exp.generate(program, ctx),
+            MulExp::MulExp(left, op, right) => {
+                let left_value: Value = left.generate(program, ctx)?;
+                let right_value = right.generate(program, ctx)?;
+                let func_data: &mut FunctionData = program.func_mut(ctx.curr_fuc.unwrap());
+
+                let koopa_op: BinaryOp = match op {
+                    MulOp::Multi => BinaryOp::Mul,
+                    MulOp::Divide => BinaryOp::Div,
+                    MulOp::Mod => BinaryOp::Mod,
+                };
+                let res = func_data
+                    .dfg_mut()
+                    .new_value()
+                    .binary(koopa_op, left_value, right_value);
+
+                func_data
+                    .layout_mut()
+                    .bb_mut(ctx.curr_block.unwrap())
+                    .insts_mut()
+                    .push_key_back(res);
+                Ok(res)
+            }
+        }
+    }
+}
+
+impl GenerateProgram for RelExp {
+    type Out = Value;
+    fn generate(&self, program: &mut Program, ctx: &mut Context) -> Result<Self::Out> {
+        match self {
+            RelExp::AddExp(add) => add.generate(program, ctx),
+            RelExp::RelExp(left, op, right) => {
+                let left_value: Value = left.generate(program, ctx)?;
+                let right_value = right.generate(program, ctx)?;
+                let koopa_op: BinaryOp = match op {
+                    RelOp::Ge => BinaryOp::Ge,
+                    RelOp::Gt => BinaryOp::Gt,
+                    RelOp::Le => BinaryOp::Le,
+                    RelOp::Lt => BinaryOp::Lt,
+                };
+                register_binary(program, ctx, left_value, right_value, koopa_op)
+            }
+        }
+    }
+}
+
+impl GenerateProgram for EqExp {
+    type Out = Value;
+    fn generate(&self, program: &mut Program, ctx: &mut Context) -> Result<Self::Out> {
+        match self {
+            EqExp::RelExp(rel) => rel.generate(program, ctx),
+            EqExp::EqExp(left, op, right) => {
+                let left_value: Value = left.generate(program, ctx)?;
+                let right_value = right.generate(program, ctx)?;
+                let koopa_op: BinaryOp = match op {
+                    EqOp::Eq => BinaryOp::Eq,
+                    EqOp::Ne => BinaryOp::NotEq,
+                };
+                register_binary(program, ctx, left_value, right_value, koopa_op)
+            }
+        }
+    }
+}
+
+impl GenerateProgram for LAndExp {
+    type Out = Value;
+    fn generate(&self, program: &mut Program, ctx: &mut Context) -> Result<Self::Out> {
+        match self {
+            LAndExp::EqExp(eq) => eq.generate(program, ctx),
+            LAndExp::LAndExp(left, op, right) => {
+                let left_value: Value = left.generate(program, ctx)?;
+                let right_value = right.generate(program, ctx)?;
+                let koopa_op: BinaryOp = match op {
+                    LAndOp::And => BinaryOp::And,
+                };
+                register_binary(program, ctx, left_value, right_value, koopa_op)
+            }
+        }
+    }
+}
+
+impl GenerateProgram for LOrExp {
+    type Out = Value;
+    fn generate(&self, program: &mut Program, ctx: &mut Context) -> Result<Self::Out> {
+        match self {
+            LOrExp::LAndExp(and) => and.generate(program, ctx),
+            LOrExp::LOrExp(left, op, right) => {
+                let left_value: Value = left.generate(program, ctx)?;
+                let right_value = right.generate(program, ctx)?;
+                let koopa_op: BinaryOp = match op {
+                    LOrOp::Or => BinaryOp::Or,
+                };
+                register_binary(program, ctx, left_value, right_value, koopa_op)
+            }
         }
     }
 }
@@ -94,6 +227,7 @@ impl GenerateProgram for UnaryExp {
         match self {
             UnaryExp::PrimaryExp(prim_exp) => match prim_exp {
                 PrimaryExp::Number(num) => {
+                    // num作为primary_exp,是一个dfg中的value,但不对应指令
                     let func_data = program.func_mut(ctx.curr_fuc.unwrap());
                     let val = func_data.dfg_mut().new_value().integer(*num);
                     Ok(val)
@@ -103,10 +237,11 @@ impl GenerateProgram for UnaryExp {
             UnaryExp::UnaryExp(op, rexp) => {
                 let rhs = rexp.generate(program, ctx)?;
                 match op {
+                    // 一元加号直接丢弃
                     UnaryOp::POSITIVE => Ok(rhs),
                     _ => {
                         let func_data = program.func_mut(ctx.curr_fuc.unwrap());
-                        let koopa_op = match op {
+                        let koopa_op: BinaryOp = match op {
                             UnaryOp::NEGATIVE => BinaryOp::Sub,
                             UnaryOp::NOT => BinaryOp::Eq,
                             _ => unreachable!(),
@@ -125,4 +260,22 @@ impl GenerateProgram for UnaryExp {
             }
         }
     }
+}
+fn register_binary(
+    program: &mut Program,
+    ctx: &mut Context,
+    left: Value,
+    right: Value,
+    op: BinaryOp,
+) -> Result<Value> {
+    let func_data: &mut FunctionData = program.func_mut(ctx.curr_fuc.unwrap());
+
+    let res = func_data.dfg_mut().new_value().binary(op, left, right);
+
+    func_data
+        .layout_mut()
+        .bb_mut(ctx.curr_block.unwrap())
+        .insts_mut()
+        .push_key_back(res);
+    Ok(res)
 }

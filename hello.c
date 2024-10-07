@@ -1,4 +1,4 @@
 int main()
 {
-    return (- -!6);
+    return (1 >= 2 && 1 || 2 > 1);
 }
