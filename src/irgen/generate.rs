@@ -1,19 +1,17 @@
-use std::ops::Add;
-
 use crate::{
     ast::*,
-    irgen::{Context, Result},
+    irgen::{Context, Result}
 };
 use koopa::ir::{
     builder::{BasicBlockBuilder, LocalInstBuilder, ValueBuilder},
     BinaryOp, FunctionData, Program, Type, Value,
 };
-
 pub trait GenerateProgram {
     type Out;
 
     fn generate(&self, program: &mut Program, ctx: &mut Context) -> Result<Self::Out>;
 }
+
 impl GenerateProgram for CompUnit {
     type Out = ();
 
@@ -50,7 +48,64 @@ impl GenerateProgram for Block {
     type Out = ();
 
     fn generate(&self, program: &mut Program, ctx: &mut Context) -> Result<Self::Out> {
-        self.stmt.generate(program, ctx);
+        for ele in self.items.iter() {
+            ele.generate(program, ctx);
+        }
+        Ok(())
+    }
+}
+
+impl GenerateProgram for BlockItem {
+    type Out = ();
+    fn generate(&self, program: &mut Program, ctx: &mut Context) -> Result<Self::Out> {
+        match self {
+            BlockItem::Stmt(stmt) => {
+                stmt.generate(program, ctx);
+            }
+            BlockItem::Decl(decl) => {
+                decl.generate(program, ctx);
+            }
+            _ => unimplemented!(),
+        }
+        Ok(())
+    }
+}
+
+
+impl GenerateProgram for Decl {
+    type Out = ();
+    fn generate(&self, program: &mut Program, ctx: &mut Context) -> Result<Self::Out> {
+        match self {
+            Decl::ConstDecl(const_decl) => {
+                const_decl.generate(program, ctx);
+            }
+        }
+        Ok(())
+    }
+}
+
+impl GenerateProgram for ConstDecl {
+    type Out = ();
+    fn generate(&self, program: &mut Program, ctx: &mut Context) -> Result<Self::Out> {
+            for ele in self.def_list.iter() {
+                ele.generate(program, ctx);
+            }
+        Ok(())
+    }
+}
+
+impl GenerateProgram for ConstDef {
+    type Out = ();
+    fn generate(&self, program: &mut Program, ctx: &mut Context) -> Result<Self::Out> {
+        self.init_val.
+        Ok(())
+    }
+}
+
+impl GenerateProgram for ConstInitVal {
+    type Out = i32;
+    fn generate(&self, program: &mut Program, ctx: &mut Context) -> Result<Self::Out> {
+        self.exp.();
         Ok(())
     }
 }
@@ -80,6 +135,17 @@ impl GenerateProgram for Stmt {
 
 impl GenerateProgram for Exp {
     type Out = Value;
+
+    fn generate(&self, program: &mut Program, ctx: &mut Context) -> Result<Self::Out> {
+        match self {
+            Exp::LOrExp(add_exp) => add_exp.generate(program, ctx),
+            _ => unreachable!(),
+        }
+    }
+}
+
+impl Eval for Exp {
+    type Out = i32;
 
     fn generate(&self, program: &mut Program, ctx: &mut Context) -> Result<Self::Out> {
         match self {
@@ -233,6 +299,12 @@ impl GenerateProgram for UnaryExp {
                     Ok(val)
                 }
                 PrimaryExp::Exp(exp) => exp.generate(program, ctx),
+                PrimaryExp::LVal(lval) => {
+                    // mock
+                    let func_data = program.func_mut(ctx.curr_fuc.unwrap());
+                    let val = func_data.dfg_mut().new_value().integer(1);
+                    Ok(val)
+                }
             },
             UnaryExp::UnaryExp(op, rexp) => {
                 let rhs = rexp.generate(program, ctx)?;

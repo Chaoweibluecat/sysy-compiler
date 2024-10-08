@@ -1,7 +1,4 @@
-use std::collections::binary_heap;
-use std::f32::consts::PI;
-use std::fmt::Binary;
-use std::{borrow::Borrow, fs::File, io::Write};
+use std::{fs::File, io::Write};
 
 use super::InsData;
 use crate::asmgen::Context;
@@ -100,7 +97,7 @@ impl GenerateAsm for koopa::ir::entities::ValueData {
                     InsData::TempResult(reg) => reg,
                 };
                 let result = ctx.curr_reg()?;
-                generateOpAsm(file, binary.op(), &left_reg, &right_reg, &result);
+                generate_op_asm(file, binary.op(), &left_reg, &right_reg, &result);
 
                 Ok(())
             }
@@ -125,7 +122,7 @@ impl GenerateAsm for koopa::ir::Value {
     }
 }
 
-pub fn generateOpAsm(
+pub fn generate_op_asm(
     file: &mut File,
     binary_op: BinaryOp,
     left: &String,

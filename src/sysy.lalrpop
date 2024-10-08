@@ -23,13 +23,46 @@ FuncDef: FuncDef = {
 
 FuncType: FuncType = "int" => FuncType::Int;
 
-Block: Block = "{" <stmt: Stmt> "}" => Block { <> };
+Block: Block = "{" <items: (BlockItem)*> "}" => Block { <> };
+
+BlockItem: BlockItem = {
+  Decl => BlockItem::Decl(<>),
+  Stmt => BlockItem::Stmt(<>),
+}
+
+Decl: Decl = {
+  ConstDecl => Decl::ConstDecl(<>),
+}
+
+ConstDecl: ConstDecl = {
+  "const" <b_type: BType> <def_1: ConstDef> <mut def_list: ("," <ConstDef>)*> => {
+    def_list.insert(0, def_1);
+    ConstDecl {b_type: b_type, def_list: def_list}
+  }
+}
+
+BType: BType = "int" => BType::Int;
+
+ConstDef: ConstDef = {
+  <id: Ident> "=" <init_val: ConstInitVal> => {
+    ConstDef {<>}
+  }
+}
+
+ConstInitVal: ConstInitVal = {
+  <exp: ConstExp> => ConstInitVal {<>}
+}
+
+ConstExp: ConstExp = {
+  <exp: Exp> => ConstExp {<>}
+}
 
 Stmt: Stmt = "return" <exp: Exp> ";" => Stmt { <> };
 
 Exp: Exp = {
     LOrExp => Exp::LOrExp(<>),
 };
+
 
 UnaryExp: UnaryExp = {
     PrimaryExp => UnaryExp::PrimaryExp(<>),
@@ -103,11 +136,12 @@ LOrOp: LOrOp = "||" => LOrOp::Or;
 
 PrimaryExp: PrimaryExp = {
     "(" <exp: Exp> ")" => PrimaryExp::Exp(Box::new(exp)),
+    LVal => PrimaryExp::LVal(<>),
     Number => PrimaryExp::Number(<>),
 }
 
 Number: i32 = <num: IntConst> => <>;
-
+LVal: LVal = <id: Ident> => LVal{<>};
 
 // 如果匹配到标识符, 就返回这个字符串
 // 一对尖括号在此处指代的是正则表达式匹配到的字符串 (&str)

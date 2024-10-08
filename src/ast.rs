@@ -86,6 +86,7 @@ pub enum LOrExp {
 pub enum PrimaryExp {
     Number(i32),
     Exp(Box<Exp>),
+    LVal(LVal),
 }
 
 #[derive(Debug)]
@@ -104,7 +105,50 @@ pub struct FuncDef {
 
 #[derive(Debug)]
 pub struct Block {
-    pub stmt: Stmt,
+    pub items: Vec<BlockItem>,
+}
+#[derive(Debug)]
+
+pub enum BlockItem {
+    Decl(Decl),
+    Stmt(Stmt),
+}
+#[derive(Debug)]
+
+pub enum Decl {
+    ConstDecl(ConstDecl),
+}
+#[derive(Debug)]
+
+pub struct ConstDecl {
+    pub b_type: BType,
+    pub def_list: Vec<ConstDef>,
+}
+#[derive(Debug)]
+
+pub struct ConstDef {
+    pub id: String,
+    pub init_val: ConstInitVal,
+}
+#[derive(Debug)]
+
+pub struct ConstInitVal {
+    pub exp: ConstExp,
+}
+#[derive(Debug)]
+
+pub struct ConstExp {
+    pub exp: Exp,
+}
+#[derive(Debug)]
+
+pub enum BType {
+    Int,
+}
+#[derive(Debug)]
+
+pub struct LVal {
+    pub id: String,
 }
 
 #[derive(Debug)]

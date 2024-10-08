@@ -1,7 +1,8 @@
 use crate::ast::CompUnit;
 use generate::GenerateProgram;
-use koopa::ir::{BasicBlock, Function, FunctionData, Program};
+use koopa::ir::{BasicBlock, Function, Program};
 
+mod eval;
 mod generate;
 #[derive(Debug)]
 pub enum Error {
