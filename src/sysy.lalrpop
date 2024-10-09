@@ -30,11 +30,30 @@ BlockItem: BlockItem = {
   Stmt  => BlockItem::Stmt(<>),
 }
 
-Stmt: Stmt = "return" <exp: Exp> ";" => Stmt { <> };
+Stmt: Stmt = {
+  "return" <exp: Exp> ";" => Stmt::Ret(<>),
+  <lval: LVal>  "=" <exp: Exp> ";" => Stmt::Assign(<>),
+}
+
 
 Decl: Decl = {
-  <ConstDecl> => Decl::ConstDecl(<>),
+  ConstDecl => Decl::ConstDecl(<>),
+  VarDecl => Decl::VarDecl(<>),
 }
+
+VarDecl: VarDecl = {
+  <b_type: BType> <def_1: VarDef> <mut def_list: ("," <VarDef>)*> ";" => {
+    def_list.insert(0, def_1);
+    VarDecl{b_type, def_list}
+  }
+}
+
+VarDef: VarDef = {
+  Ident => VarDef::IdOnly(<>),
+  <Ident> "=" <InitVal> => VarDef::Assign(<>),
+}
+
+InitVal: InitVal = <exp: Exp> => InitVal{exp};
 
 ConstDecl: ConstDecl = {
   "const" <b_type: BType> <def_1: ConstDef> <mut def_list: ("," <ConstDef>)*> ";"  => {

@@ -5,7 +5,7 @@ use koopa::ir::{Function, Program, Value};
 mod asmgen;
 use crate::irgen::Result;
 
-struct Context<'a> {
+pub struct Context<'a> {
     prog: &'a Program,
     func: Option<Function>,
     curr_reg: i32,

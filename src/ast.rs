@@ -108,24 +108,37 @@ pub struct Block {
     pub items: Vec<BlockItem>,
 }
 #[derive(Debug)]
-
 pub enum BlockItem {
     Decl(Decl),
     Stmt(Stmt),
 }
-#[derive(Debug)]
 
+#[derive(Debug)]
 pub enum Decl {
     ConstDecl(ConstDecl),
+    VarDecl(VarDecl),
 }
 #[derive(Debug)]
+pub struct VarDecl {
+    pub b_type: BType,
+    pub def_list: Vec<VarDef>,
+}
+#[derive(Debug)]
+pub enum VarDef {
+    IdOnly(String),
+    Assign(String, InitVal),
+}
+#[derive(Debug)]
+pub struct InitVal {
+    pub exp: Exp,
+}
 
+#[derive(Debug)]
 pub struct ConstDecl {
     pub b_type: BType,
     pub def_list: Vec<ConstDef>,
 }
 #[derive(Debug)]
-
 pub struct ConstDef {
     pub id: String,
     pub init_val: ConstInitVal,
@@ -152,6 +165,7 @@ pub struct LVal {
 }
 
 #[derive(Debug)]
-pub struct Stmt {
-    pub exp: Exp,
+pub enum Stmt {
+    Ret(Exp),
+    Assign(LVal, Exp),
 }

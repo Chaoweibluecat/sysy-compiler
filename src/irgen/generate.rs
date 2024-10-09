@@ -79,6 +79,9 @@ impl GenerateProgram for Decl {
             Decl::ConstDecl(const_decl) => {
                 const_decl.generate(program, ctx);
             }
+            Decl::VarDecl(_) => {
+                unimplemented!()
+            }
         }
         Ok(())
     }
@@ -123,19 +126,21 @@ impl GenerateProgram for Stmt {
     fn generate(&self, program: &mut Program, ctx: &mut Context) -> Result<Self::Out> {
         let cur_func_id = ctx.curr_fuc.unwrap();
         let cur_block_id = ctx.curr_block.unwrap();
-        let res_val = self.exp.generate(program, ctx)?;
-        let ret = program
-            .func_mut(cur_func_id)
-            .dfg_mut()
-            .new_value()
-            .ret(Some(res_val));
-        program
-            .func_mut(cur_func_id)
-            .layout_mut()
-            .bb_mut(cur_block_id)
-            .insts_mut()
-            .push_key_back(ret)
-            .unwrap();
+        if let Stmt::Ret(exp) = self {
+            let res_val = exp.generate(program, ctx)?;
+            let ret = program
+                .func_mut(cur_func_id)
+                .dfg_mut()
+                .new_value()
+                .ret(Some(res_val));
+            program
+                .func_mut(cur_func_id)
+                .layout_mut()
+                .bb_mut(cur_block_id)
+                .insts_mut()
+                .push_key_back(ret)
+                .unwrap();
+        }
         Ok(())
     }
 }
