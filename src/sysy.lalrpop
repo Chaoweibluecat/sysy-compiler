@@ -26,16 +26,18 @@ FuncType: FuncType = "int" => FuncType::Int;
 Block: Block = "{" <items: (BlockItem)*> "}" => Block { <> };
 
 BlockItem: BlockItem = {
-  Decl => BlockItem::Decl(<>),
-  Stmt => BlockItem::Stmt(<>),
+  Decl  => BlockItem::Decl(<>),
+  Stmt  => BlockItem::Stmt(<>),
 }
 
+Stmt: Stmt = "return" <exp: Exp> ";" => Stmt { <> };
+
 Decl: Decl = {
-  ConstDecl => Decl::ConstDecl(<>),
+  <ConstDecl> => Decl::ConstDecl(<>),
 }
 
 ConstDecl: ConstDecl = {
-  "const" <b_type: BType> <def_1: ConstDef> <mut def_list: ("," <ConstDef>)*> => {
+  "const" <b_type: BType> <def_1: ConstDef> <mut def_list: ("," <ConstDef>)*> ";"  => {
     def_list.insert(0, def_1);
     ConstDecl {b_type: b_type, def_list: def_list}
   }
@@ -57,7 +59,6 @@ ConstExp: ConstExp = {
   <exp: Exp> => ConstExp {<>}
 }
 
-Stmt: Stmt = "return" <exp: Exp> ";" => Stmt { <> };
 
 Exp: Exp = {
     LOrExp => Exp::LOrExp(<>),

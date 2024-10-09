@@ -1,6 +1,7 @@
+use super::eval::Eval;
 use crate::{
     ast::*,
-    irgen::{Context, Result}
+    irgen::{Context, Result},
 };
 use koopa::ir::{
     builder::{BasicBlockBuilder, LocalInstBuilder, ValueBuilder},
@@ -71,7 +72,6 @@ impl GenerateProgram for BlockItem {
     }
 }
 
-
 impl GenerateProgram for Decl {
     type Out = ();
     fn generate(&self, program: &mut Program, ctx: &mut Context) -> Result<Self::Out> {
@@ -87,9 +87,9 @@ impl GenerateProgram for Decl {
 impl GenerateProgram for ConstDecl {
     type Out = ();
     fn generate(&self, program: &mut Program, ctx: &mut Context) -> Result<Self::Out> {
-            for ele in self.def_list.iter() {
-                ele.generate(program, ctx);
-            }
+        for ele in self.def_list.iter() {
+            ele.generate(program, ctx);
+        }
         Ok(())
     }
 }
@@ -97,7 +97,8 @@ impl GenerateProgram for ConstDecl {
 impl GenerateProgram for ConstDef {
     type Out = ();
     fn generate(&self, program: &mut Program, ctx: &mut Context) -> Result<Self::Out> {
-        self.init_val.
+        let eval_val = self.init_val.generate(program, ctx)?;
+        ctx.symbol_table.insert(self.id.clone(), eval_val);
         Ok(())
     }
 }
@@ -105,8 +106,14 @@ impl GenerateProgram for ConstDef {
 impl GenerateProgram for ConstInitVal {
     type Out = i32;
     fn generate(&self, program: &mut Program, ctx: &mut Context) -> Result<Self::Out> {
-        self.exp.();
-        Ok(())
+        self.exp.generate(program, ctx)
+    }
+}
+
+impl GenerateProgram for ConstExp {
+    type Out = i32;
+    fn generate(&self, program: &mut Program, ctx: &mut Context) -> Result<Self::Out> {
+        self.exp.eval(ctx)
     }
 }
 
@@ -144,17 +151,6 @@ impl GenerateProgram for Exp {
     }
 }
 
-impl Eval for Exp {
-    type Out = i32;
-
-    fn generate(&self, program: &mut Program, ctx: &mut Context) -> Result<Self::Out> {
-        match self {
-            Exp::LOrExp(add_exp) => add_exp.generate(program, ctx),
-            _ => unreachable!(),
-        }
-    }
-}
-
 impl GenerateProgram for AddExp {
     type Out = Value;
     fn generate(&self, program: &mut Program, ctx: &mut Context) -> Result<Self::Out> {
@@ -167,17 +163,7 @@ impl GenerateProgram for AddExp {
                     AddOp::Add => BinaryOp::Add,
                     AddOp::Minus => BinaryOp::Sub,
                 };
-                let func_data = program.func_mut(ctx.curr_fuc.unwrap());
-                let res = func_data
-                    .dfg_mut()
-                    .new_value()
-                    .binary(koopa_op, left_value, right_value);
-                func_data
-                    .layout_mut()
-                    .bb_mut(ctx.curr_block.unwrap())
-                    .insts_mut()
-                    .push_key_back(res);
-                Ok(res)
+                register_binary(program, ctx, left_value, right_value, koopa_op)
             }
         }
     }
@@ -198,17 +184,7 @@ impl GenerateProgram for MulExp {
                     MulOp::Divide => BinaryOp::Div,
                     MulOp::Mod => BinaryOp::Mod,
                 };
-                let res = func_data
-                    .dfg_mut()
-                    .new_value()
-                    .binary(koopa_op, left_value, right_value);
-
-                func_data
-                    .layout_mut()
-                    .bb_mut(ctx.curr_block.unwrap())
-                    .insts_mut()
-                    .push_key_back(res);
-                Ok(res)
+                register_binary(program, ctx, left_value, right_value, koopa_op)
             }
         }
     }
@@ -300,10 +276,15 @@ impl GenerateProgram for UnaryExp {
                 }
                 PrimaryExp::Exp(exp) => exp.generate(program, ctx),
                 PrimaryExp::LVal(lval) => {
-                    // mock
-                    let func_data = program.func_mut(ctx.curr_fuc.unwrap());
-                    let val = func_data.dfg_mut().new_value().integer(1);
-                    Ok(val)
+                    let value: Option<&i32> = ctx.symbol_table.get(&lval.id);
+                    match value {
+                        None => Err(super::Error::UnknownSymbol),
+                        Some(val) => {
+                            // 表达式中的左值,如果是常量,直接取解析结果
+                            let func_data = program.func_mut(ctx.curr_fuc.unwrap());
+                            Ok(func_data.dfg_mut().new_value().integer(*val))
+                        }
+                    }
                 }
             },
             UnaryExp::UnaryExp(op, rexp) => {
@@ -333,6 +314,7 @@ impl GenerateProgram for UnaryExp {
         }
     }
 }
+
 fn register_binary(
     program: &mut Program,
     ctx: &mut Context,
