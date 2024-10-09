@@ -1,20 +1,16 @@
-use crate::{
-    ast::*,
-    irgen::{Context, Result},
-};
+use crate::{ ast::*, irgen::{ Context, Result } };
+
+use super::ASTValue;
 
 // 编译期间使用的表达式解析工具
-// 注意在处理 左值 时, 由于只有 const的值可以在编译期间确定（通过查符号表直接获得）
-// 其他左值实际对于的值在编译期间无法确定; 所以在PrimaryExp.eval中会拒绝求值;
-// 编译期间表达式求值仅依赖符号表,不依赖Program;
 
+// 注意在处理 AST中的左值（这里是广义上的LVal,实际是symbol), 时, 由于只有 const的值可以在编译期间确定（通过查符号表直接获得）
+// 变量对应的值在编译期间无法确定; 所以在PrimaryExp.eval中会拒绝求值;
+// 编译期间表达式求值仅依赖符号表,不依赖Program;
 fn cast_int_to_bool(int_val: i32) -> bool {
-    if int_val == 0 {
-        false
-    } else {
-        true
-    }
+    if int_val == 0 { false } else { true }
 }
+
 pub trait Eval {
     type Out;
     fn eval(&self, ctx: &mut Context) -> Result<Self::Out>;
@@ -166,10 +162,11 @@ impl Eval for PrimaryExp {
             PrimaryExp::Exp(exp) => exp.eval(ctx),
             PrimaryExp::Number(num) => Ok(*num),
             PrimaryExp::LVal(lval) => {
-                let val_op = ctx.symbol_table.get(&lval.id);
+                let val_op = ctx.look_up_symbol(&lval.id);
                 match val_op {
                     None => Err(super::Error::UnknownSymbol),
-                    Some(val) => Ok(*val),
+                    Some(ASTValue::Const(val)) => Ok(*val),
+                    _ => Err(super::Error::VariableEvalAtCompileTime),
                 }
             }
         }

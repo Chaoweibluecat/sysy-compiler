@@ -35,7 +35,6 @@ Stmt: Stmt = {
   <lval: LVal>  "=" <exp: Exp> ";" => Stmt::Assign(<>),
 }
 
-
 Decl: Decl = {
   ConstDecl => Decl::ConstDecl(<>),
   VarDecl => Decl::VarDecl(<>),

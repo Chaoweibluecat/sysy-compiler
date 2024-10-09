@@ -1,9 +1,9 @@
-use std::{fs::File, io::Write};
+use std::{ fs::File, io::Write };
 
 use super::InsData;
 use crate::asmgen::Context;
-use crate::irgen::{Error, Result};
-use koopa::ir::{BinaryOp, Value, ValueKind};
+use crate::irgen::{ Error, Result };
+use koopa::ir::{ BinaryOp, Value, ValueKind };
 // koopa IR => ASM
 pub trait GenerateAsm {
     fn generate(&self, file: &mut File, ctx: &mut Context) -> Result<Self::Out>;
@@ -127,7 +127,7 @@ pub fn generate_op_asm(
     binary_op: BinaryOp,
     left: &String,
     right: &String,
-    result: &String,
+    result: &String
 ) {
     match binary_op {
         BinaryOp::Sub => {
@@ -171,13 +171,10 @@ pub fn generate_op_asm(
 
         BinaryOp::And => {
             writeln!(file, "  and   {}, {}, {}", result, left, right);
-            // 位与的结果 0=>0 , else =>0,使用不等于0指令
-            writeln!(file, "  snez  {}, {}", result, result);
         }
 
         BinaryOp::Or => {
             writeln!(file, "  or    {}, {}, {}", result, left, right);
-            writeln!(file, "  snez  {}, {}", result, result);
         }
         _ => unreachable!(),
     }
@@ -194,9 +191,9 @@ impl<'a> Context<'a> {
     }
 
     fn map_num(&self, reg_num: i32) -> Result<String> {
-        if (reg_num < 7) {
+        if reg_num < 7 {
             Ok(format!("t{}", reg_num))
-        } else if (reg_num < 14) {
+        } else if reg_num < 14 {
             Ok(format!("a{}", reg_num - 7))
         } else {
             unreachable!()
