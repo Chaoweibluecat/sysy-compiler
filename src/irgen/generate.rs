@@ -1,12 +1,11 @@
-use super::{ eval::Eval, Error, ASTValue };
-use crate::{ ast::*, irgen::{ Context, Result } };
+use super::{eval::Eval, ASTValue, Error};
+use crate::{
+    ast::*,
+    irgen::{Context, Result},
+};
 use koopa::ir::{
-    builder::{ BasicBlockBuilder, LocalInstBuilder, ValueBuilder },
-    BinaryOp,
-    FunctionData,
-    Program,
-    Type,
-    Value,
+    builder::{BasicBlockBuilder, LocalInstBuilder, ValueBuilder},
+    BinaryOp, FunctionData, Program, Type, Value,
 };
 pub trait GenerateProgram {
     type Out;
@@ -18,7 +17,7 @@ impl GenerateProgram for CompUnit {
     type Out = ();
 
     fn generate(&self, program: &mut Program, ctx: &mut Context) -> Result<Self::Out> {
-        self.func_def.generate(program, ctx);
+        self.func_def.generate(program, ctx)?;
         Ok(())
     }
 }
@@ -27,21 +26,21 @@ impl GenerateProgram for FuncDef {
     type Out = ();
 
     fn generate(&self, program: &mut Program, ctx: &mut Context) -> Result<Self::Out> {
-        let main_handle = program.new_func(
-            FunctionData::with_param_names(
-                format!("@{}", self.ident).into(),
-                vec![],
-                Type::get_i32()
-            )
-        );
+        let main_handle = program.new_func(FunctionData::with_param_names(
+            format!("@{}", self.ident).into(),
+            vec![],
+            Type::get_i32(),
+        ));
         let main = program.func_mut(main_handle);
         ctx.curr_fuc = Some(main_handle);
-        let entry1 = main.dfg_mut().new_bb().basic_block(Some("%entry".to_string()));
-        main
-            .layout_mut()
+        let entry1 = main
+            .dfg_mut()
+            .new_bb()
+            .basic_block(Some("%entry".to_string()));
+        main.layout_mut()
             .bbs_mut()
             .push_key_back(entry1)
-            .map_err(|_| { Error::SysError })?;
+            .map_err(|_| Error::SysError)?;
 
         ctx.curr_block = Some(entry1);
         self.block.generate(program, ctx)?;
@@ -70,7 +69,6 @@ impl GenerateProgram for BlockItem {
             BlockItem::Decl(decl) => {
                 decl.generate(program, ctx)?;
             }
-            _ => unimplemented!(),
         }
         Ok(())
     }
@@ -117,7 +115,7 @@ impl GenerateProgram for VarDef {
                             .bb_mut(ctx.curr_block.unwrap())
                             .insts_mut()
                             .push_key_back(alloc)
-                            .map_err(|_| { Error::SysError })?;
+                            .map_err(|_| Error::SysError)?;
                         ctx.insert(&id, ASTValue::Variable(alloc));
                         Ok(())
                     }
@@ -137,7 +135,7 @@ impl GenerateProgram for VarDef {
                             .bb_mut(ctx.curr_block.unwrap())
                             .insts_mut()
                             .extend([alloc, store_ins]);
-                        ctx.insert(&format!("%{}", id).to_owned(), ASTValue::Variable(alloc));
+                        ctx.insert(&format!("{}", id).to_owned(), ASTValue::Variable(alloc));
                         Ok(())
                     }
                 }
@@ -157,7 +155,7 @@ impl GenerateProgram for ConstDecl {
     type Out = ();
     fn generate(&self, program: &mut Program, ctx: &mut Context) -> Result<Self::Out> {
         for ele in self.def_list.iter() {
-            ele.generate(program, ctx);
+            ele.generate(program, ctx)?;
         }
         Ok(())
     }
@@ -167,7 +165,8 @@ impl GenerateProgram for ConstDef {
     type Out = ();
     fn generate(&self, program: &mut Program, ctx: &mut Context) -> Result<Self::Out> {
         let eval_val = self.init_val.generate(program, ctx)?;
-        ctx.symbol_table.insert(self.id.clone(), ASTValue::Const(eval_val));
+        ctx.symbol_table
+            .insert(self.id.clone(), ASTValue::Const(eval_val));
         Ok(())
     }
 }
@@ -181,7 +180,7 @@ impl GenerateProgram for ConstInitVal {
 
 impl GenerateProgram for ConstExp {
     type Out = i32;
-    fn generate(&self, program: &mut Program, ctx: &mut Context) -> Result<Self::Out> {
+    fn generate(&self, _: &mut Program, ctx: &mut Context) -> Result<Self::Out> {
         self.exp.eval(ctx)
     }
 }
@@ -195,7 +194,11 @@ impl GenerateProgram for Stmt {
         match self {
             Stmt::Ret(exp) => {
                 let res_val = exp.generate(program, ctx)?;
-                let ret = program.func_mut(cur_func_id).dfg_mut().new_value().ret(Some(res_val));
+                let ret = program
+                    .func_mut(cur_func_id)
+                    .dfg_mut()
+                    .new_value()
+                    .ret(Some(res_val));
                 program
                     .func_mut(cur_func_id)
                     .layout_mut()
@@ -207,13 +210,12 @@ impl GenerateProgram for Stmt {
             }
 
             Stmt::Assign(lval, exp) => {
-                // do we have to copy???
+                let rval = exp.generate(program, ctx)?;
                 let sym_val = ctx.look_up_symbol(&lval.id);
                 match sym_val {
-                    Some(ASTValue::Const(_)) => { Err(Error::RedefineConstValue) }
+                    Some(ASTValue::Const(_)) => Err(Error::RedefineConstValue),
                     None => Err(Error::UnknownSymbol),
                     Some(ASTValue::Variable(lval)) => {
-                        let rval = exp.generate(program, ctx)?;
                         let func_data = program.func_mut(ctx.curr_fuc.unwrap());
                         let store_ins = func_data.dfg_mut().new_value().store(rval, *lval);
                         func_data
@@ -235,7 +237,6 @@ impl GenerateProgram for Exp {
     fn generate(&self, program: &mut Program, ctx: &mut Context) -> Result<Self::Out> {
         match self {
             Exp::LOrExp(add_exp) => add_exp.generate(program, ctx),
-            _ => unreachable!(),
         }
     }
 }
@@ -262,12 +263,10 @@ impl GenerateProgram for MulExp {
     type Out = Value;
     fn generate(&self, program: &mut Program, ctx: &mut Context) -> Result<Self::Out> {
         match self {
-            MulExp::UnaryExp(unary_Exp) => unary_Exp.generate(program, ctx),
+            MulExp::UnaryExp(unary_exp) => unary_exp.generate(program, ctx),
             MulExp::MulExp(left, op, right) => {
                 let left_value: Value = left.generate(program, ctx)?;
                 let right_value = right.generate(program, ctx)?;
-                let func_data: &mut FunctionData = program.func_mut(ctx.curr_fuc.unwrap());
-
                 let koopa_op: BinaryOp = match op {
                     MulOp::Multi => BinaryOp::Mul,
                     MulOp::Divide => BinaryOp::Div,
@@ -322,17 +321,14 @@ impl GenerateProgram for LAndExp {
     fn generate(&self, program: &mut Program, ctx: &mut Context) -> Result<Self::Out> {
         match self {
             LAndExp::EqExp(eq) => eq.generate(program, ctx),
-            LAndExp::LAndExp(left, op, right) => {
+            LAndExp::LAndExp(left, _, right) => {
                 let left_value: Value = left.generate(program, ctx)?;
                 let right_value = right.generate(program, ctx)?;
-                let koopa_op: BinaryOp = match op {
-                    LAndOp::And => BinaryOp::And,
-                };
-                let res_val = register_binary(program, ctx, left_value, right_value, koopa_op)?;
-                // A and B => (A bitAnd B) NotEq 0
                 let func_data = program.func_mut(ctx.curr_fuc.unwrap());
                 let zero = func_data.dfg_mut().new_value().integer(0);
-                register_binary(program, ctx, res_val, zero, BinaryOp::NotEq)
+                let left_bool = register_binary(program, ctx, left_value, zero, BinaryOp::NotEq)?;
+                let right_bool = register_binary(program, ctx, right_value, zero, BinaryOp::NotEq)?;
+                register_binary(program, ctx, left_bool, right_bool, BinaryOp::And)
             }
         }
     }
@@ -343,17 +339,14 @@ impl GenerateProgram for LOrExp {
     fn generate(&self, program: &mut Program, ctx: &mut Context) -> Result<Self::Out> {
         match self {
             LOrExp::LAndExp(and) => and.generate(program, ctx),
-            LOrExp::LOrExp(left, op, right) => {
+            LOrExp::LOrExp(left, _, right) => {
                 let left_value: Value = left.generate(program, ctx)?;
                 let right_value = right.generate(program, ctx)?;
-                let koopa_op: BinaryOp = match op {
-                    LOrOp::Or => BinaryOp::Or,
-                };
-                // A and B => (A bitOr B) NotEq 0
-                let res_val = register_binary(program, ctx, left_value, right_value, koopa_op)?;
                 let func_data = program.func_mut(ctx.curr_fuc.unwrap());
                 let zero = func_data.dfg_mut().new_value().integer(0);
-                register_binary(program, ctx, res_val, zero, BinaryOp::NotEq)
+                let left_bool = register_binary(program, ctx, left_value, zero, BinaryOp::NotEq)?;
+                let right_bool = register_binary(program, ctx, right_value, zero, BinaryOp::NotEq)?;
+                register_binary(program, ctx, left_bool, right_bool, BinaryOp::Add)
             }
         }
     }
@@ -364,31 +357,42 @@ impl GenerateProgram for UnaryExp {
 
     fn generate(&self, program: &mut Program, ctx: &mut Context) -> Result<Self::Out> {
         match self {
-            UnaryExp::PrimaryExp(prim_exp) =>
-                match prim_exp {
-                    PrimaryExp::Number(num) => {
-                        // num作为primary_exp,是一个dfg中的value,但不对应指令
-                        let func_data = program.func_mut(ctx.curr_fuc.unwrap());
-                        let val = func_data.dfg_mut().new_value().integer(*num);
-                        Ok(val)
-                    }
-                    PrimaryExp::Exp(exp) => exp.generate(program, ctx),
-                    PrimaryExp::LVal(lval) => {
-                        let value: Option<&ASTValue> = ctx.look_up_symbol(&lval.id);
-                        match value {
-                            None => Err(super::Error::UnknownSymbol),
-                            Some(ASTValue::Const(val)) => {
-                                // 表达式中的左值,如果是常量,直接取解析结果
-                                let func_data = program.func_mut(ctx.curr_fuc.unwrap());
-                                Ok(func_data.dfg_mut().new_value().integer(*val))
-                            }
-                            Some(ASTValue::Variable(lval)) => {
-                                // 表达式中的左值,如果是常量,直接取解析结果
-                                Ok(*lval)
-                            }
+            UnaryExp::PrimaryExp(prim_exp) => match prim_exp {
+                PrimaryExp::Number(num) => {
+                    // num作为primary_exp,是一个dfg中的value,但不对应指令
+                    let func_data = program.func_mut(ctx.curr_fuc.unwrap());
+                    let val = func_data.dfg_mut().new_value().integer(*num);
+                    Ok(val)
+                }
+                PrimaryExp::Exp(exp) => exp.generate(program, ctx),
+                PrimaryExp::LVal(lval) => {
+                    // lval作为表达式（即出现在等号右边时),此时需要求值
+                    // 1. name => 内存位置 (查env//符号表)
+                    // 2. 内存位置 => 内存值 (koopa中的load, 读出val作为指针实际指向的栈值，作为表达式的返回)
+                    let value: Option<&ASTValue> = ctx.look_up_symbol(&lval.id);
+                    match value {
+                        None => Err(super::Error::UnknownSymbol),
+                        Some(ASTValue::Const(val)) => {
+                            // 表达式中的左值,如果是常量,直接取解析结果
+                            let func_data: &mut FunctionData =
+                                program.func_mut(ctx.curr_fuc.unwrap());
+                            Ok(func_data.dfg_mut().new_value().integer(*val))
+                        }
+                        Some(ASTValue::Variable(lval)) => {
+                            let func_data: &mut FunctionData =
+                                program.func_mut(ctx.curr_fuc.unwrap());
+                            let load = func_data.dfg_mut().new_value().load(*lval);
+                            func_data
+                                .layout_mut()
+                                .bb_mut(ctx.curr_block.unwrap())
+                                .insts_mut()
+                                .push_key_back(load)
+                                .map_err(|_| Error::SysError)?;
+                            Ok(load)
                         }
                     }
                 }
+            },
             UnaryExp::UnaryExp(op, rexp) => {
                 let rhs = rexp.generate(program, ctx)?;
                 match op {
@@ -407,7 +411,8 @@ impl GenerateProgram for UnaryExp {
                             .layout_mut()
                             .bb_mut(ctx.curr_block.unwrap())
                             .insts_mut()
-                            .push_key_back(res);
+                            .push_key_back(res)
+                            .map_err(|_| Error::SysError)?;
 
                         Ok(res)
                     }
@@ -422,10 +427,15 @@ fn register_binary(
     ctx: &mut Context,
     left: Value,
     right: Value,
-    op: BinaryOp
+    op: BinaryOp,
 ) -> Result<Value> {
     let func_data: &mut FunctionData = program.func_mut(ctx.curr_fuc.unwrap());
     let res = func_data.dfg_mut().new_value().binary(op, left, right);
-    func_data.layout_mut().bb_mut(ctx.curr_block.unwrap()).insts_mut().push_key_back(res);
+    func_data
+        .layout_mut()
+        .bb_mut(ctx.curr_block.unwrap())
+        .insts_mut()
+        .push_key_back(res)
+        .map_err(|_| Error::SysError)?;
     Ok(res)
 }

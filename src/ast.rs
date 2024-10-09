@@ -1,5 +1,3 @@
-use std::ops::Add;
-
 #[derive(Debug)]
 pub struct CompUnit {
     pub func_def: FuncDef,
@@ -107,6 +105,7 @@ pub struct FuncDef {
 pub struct Block {
     pub items: Vec<BlockItem>,
 }
+
 #[derive(Debug)]
 pub enum BlockItem {
     Decl(Decl),

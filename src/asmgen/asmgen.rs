@@ -1,9 +1,9 @@
-use std::{ fs::File, io::Write };
+use std::{fs::File, io::Write};
 
 use super::InsData;
 use crate::asmgen::Context;
-use crate::irgen::{ Error, Result };
-use koopa::ir::{ BinaryOp, Value, ValueKind };
+use crate::irgen::{Error, Result};
+use koopa::ir::{BinaryOp, Value, ValueKind};
 // koopa IR => ASM
 pub trait GenerateAsm {
     fn generate(&self, file: &mut File, ctx: &mut Context) -> Result<Self::Out>;
@@ -127,7 +127,7 @@ pub fn generate_op_asm(
     binary_op: BinaryOp,
     left: &String,
     right: &String,
-    result: &String
+    result: &String,
 ) {
     match binary_op {
         BinaryOp::Sub => {
@@ -139,6 +139,7 @@ pub fn generate_op_asm(
         }
         BinaryOp::NotEq => {
             writeln!(file, "  xor   {}, {}, {}", result, left, right);
+            writeln!(file, "  snez  {}, {}", result, result);
         }
         BinaryOp::Mul => {
             writeln!(file, "  mul   {}, {}, {}", result, left, right);

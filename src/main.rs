@@ -14,18 +14,18 @@ mod irgen;
 lalrpop_mod!(sysy);
 
 fn main() -> Result<()> {
-    let input = "hello.c";
-    let mode = "-koopa".to_owned();
-    let output = "hello.koopa";
-    let output_2 = "hello.asm";
+    // let input = "hello.c";
+    // let mode = "-koopa".to_owned();
+    // let output = "hello.koopa";
+    // let output_2 = "hello.asm";
 
-    // let mut args = args();
-    // args.next();
-    // let mode = args.next().unwrap();
-    // let input = args.next().unwrap();
-    // args.next();
-    // let output = args.next().unwrap();
-    // // 读取输入文件
+    let mut args = args();
+    args.next();
+    let mode = args.next().unwrap();
+    let input = args.next().unwrap();
+    args.next();
+    let output = args.next().unwrap();
+    // 读取输入文件
     let input = read_to_string(input)?;
 
     // parse input file
@@ -34,7 +34,10 @@ fn main() -> Result<()> {
     let prog = generate_program(&comp_unit).unwrap();
 
     if mode.as_str() == "-koopa" {
-        KoopaGenerator::from_path(output).unwrap().generate_on(&prog).unwrap();
+        KoopaGenerator::from_path(output)
+            .unwrap()
+            .generate_on(&prog)
+            .unwrap();
     } else {
         generate_asm(&prog, &output).expect("failed to generate asm");
     }
