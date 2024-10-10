@@ -3,7 +3,7 @@ use std::{fs::File, io::Write};
 use super::InsData;
 use crate::asmgen::Context;
 use crate::irgen::{Error, Result};
-use koopa::ir::{BinaryOp, Value, ValueKind};
+use koopa::ir::{BinaryOp, FunctionData, Value, ValueKind};
 // koopa IR => ASM
 pub trait GenerateAsm {
     fn generate(&self, file: &mut File, ctx: &mut Context) -> Result<Self::Out>;
@@ -31,6 +31,7 @@ impl GenerateAsm for koopa::ir::FunctionData {
     fn generate(&self, file: &mut File, ctx: &mut Context) -> Result<Self::Out> {
         let name = self.name()[1..].to_string();
         writeln!(file, "{}:", name);
+        self.alloc_slots(ctx);
         for (&bb, node) in self.layout().bbs() {
             for &inst in node.insts().keys() {
                 ctx.register_value(inst);
@@ -182,6 +183,22 @@ pub fn generate_op_asm(
 }
 
 impl<'a> Context<'a> {
+    // 扫描函数的所有指令,按需在栈上分配内存
+    fn alloc_on_stack(&mut self, func_data: &FunctionData) {
+        let mut need_alloc_stack_space = 0;
+        for (_, bbd) in func_data.layout().bbs().iter() {
+            for (val, _) in bbd.insts() {
+                // 本条指令需要分配内存,则为返回值
+                if func_data.dfg().value(*val).ty().is_unit() {
+                    self.value_2_stack_offset
+                        .insert(val.clone(), need_alloc_stack_space);
+                    need_alloc_stack_space += 4;
+                }
+            }
+        }
+        need_alloc_stack_space = (need_alloc_stack_space / 16);
+    }
+
     fn next_reg(&mut self) -> Result<i32> {
         self.curr_reg = self.curr_reg + 1;
         if self.curr_reg >= 14 {

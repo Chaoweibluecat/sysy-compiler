@@ -9,7 +9,7 @@ pub struct Context<'a> {
     prog: &'a Program,
     func: Option<Function>,
     curr_reg: i32,
-    value_2_regs: HashMap<Value, i32>,
+    pub value_2_stack_offset: HashMap<Value, i32>,
 }
 
 pub enum InsData {
@@ -24,7 +24,7 @@ pub fn generate_asm(program: &Program, path: &str) -> Result<()> {
             prog: program,
             func: None,
             curr_reg: 1,
-            value_2_regs: HashMap::new(),
+            value_2_stack_offset: HashMap::new(),
         }),
     )
 }
