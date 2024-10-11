@@ -29,13 +29,22 @@ BlockItem: BlockItem = {
   Decl  => BlockItem::Decl(<>),
   Stmt  => BlockItem::Stmt(<>),
 }
+IfStmt: IfStmt = {
+    Stmt => IfStmt:Stmt(<>),
+    "if" "(" <cond_exp: Exp> ")" <then_stmt: Stmt> => IfStmt::IfStmt(<>),
+}
 
 Stmt: Stmt = {
   <lval: LVal>  "=" <exp: Exp> ";" => Stmt::Assign(<>),
   <exp: (<Exp>)?> ";" => Stmt::Exp(<>), 
   Block => Stmt::Block(Box::new(<>)), 
+  "if" "(" <cond_exp: Exp> ")" <then_stmt: Stmt> "else" <else_stmt: IfStmt> =>
+        Stmt::IfElse(cond_exp, Box::new(then_stmt), Box::new(else_stmt)),
   "return" <exp: Exp> ";" => Stmt::Ret(<>),
 }
+
+
+
 
 Decl: Decl = {
   ConstDecl => Decl::ConstDecl(<>),
