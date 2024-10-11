@@ -18,8 +18,8 @@ pub enum Error {
 pub struct Context {
     pub curr_fuc: Option<Function>,
     pub curr_block: Option<BasicBlock>,
-    // 常量在符号表中存放解析后的值
     pub symbol_table: HashMap<String, ASTValue>,
+    // pub scopes: Vec<HashMap<String, ASTValue>>,
 }
 
 // for each symbol,store parsedVal for const, store value for variable

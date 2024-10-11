@@ -15,5 +15,5 @@ main:
   lw    t0, 0(sp)
   sw    t0, 12(sp)
   lw    a0, 12(sp)
-  ret
   addi  sp, 16
+  ret

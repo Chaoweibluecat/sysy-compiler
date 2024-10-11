@@ -143,22 +143,18 @@ pub struct ConstDef {
     pub init_val: ConstInitVal,
 }
 #[derive(Debug)]
-
 pub struct ConstInitVal {
     pub exp: ConstExp,
 }
 #[derive(Debug)]
-
 pub struct ConstExp {
     pub exp: Exp,
 }
 #[derive(Debug)]
-
 pub enum BType {
     Int,
 }
 #[derive(Debug)]
-
 pub struct LVal {
     pub id: String,
 }

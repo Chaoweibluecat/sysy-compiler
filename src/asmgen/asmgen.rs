@@ -1,10 +1,10 @@
-use std::{fs::File, io::Write};
+use std::{ fs::File, io::Write };
 
 use super::InsData;
 use crate::asmgen::Context;
-use crate::irgen::{Error, Result};
+use crate::irgen::{ Error, Result };
 use koopa::ir::entities::ValueData;
-use koopa::ir::{entities, BinaryOp, FunctionData, Type, Value, ValueKind};
+use koopa::ir::{ entities, BinaryOp, FunctionData, Type, Value, ValueKind };
 // koopa IR => ASM
 pub trait GenerateAsm {
     fn generate(&self, file: &mut File, ctx: &mut Context) -> Result<Self::Out>;
@@ -33,11 +33,7 @@ impl GenerateAsm for koopa::ir::FunctionData {
         let name = self.name()[1..].to_string();
         writeln!(file, "{}:", name);
         ctx.alloc_on_stack(self);
-        writeln!(
-            file,
-            "  addi  sp, -{}",
-            ctx.cur_fuc_stack_allocation.unwrap()
-        );
+        writeln!(file, "  addi  sp, -{}", ctx.cur_fuc_stack_allocation.unwrap());
         for (_, node) in self.layout().bbs() {
             for &inst in node.insts().keys() {
                 println!("generating value data {:#?}", inst);
@@ -49,11 +45,6 @@ impl GenerateAsm for koopa::ir::FunctionData {
                 value_data.generate(file, ctx)?;
             }
         }
-        writeln!(
-            file,
-            "  addi  sp, {}",
-            ctx.cur_fuc_stack_allocation.unwrap()
-        );
         Ok(())
     }
 }
@@ -85,6 +76,8 @@ impl GenerateAsm for koopa::ir::entities::ValueData {
                         }
                     }
                 }
+                // write epilogue at ext point
+                writeln!(file, "  addi  sp, {}", ctx.cur_fuc_stack_allocation.unwrap());
                 writeln!(file, "  ret");
                 Ok(())
             }
@@ -121,8 +114,10 @@ impl GenerateAsm for koopa::ir::entities::ValueData {
                     writeln!(file, "  lw    t0, {}(sp)", offset);
                 }
 
-                if let InsData::StackSlot(self_offset) =
-                    ctx.cur_value.unwrap().generate(file, ctx)?
+                if
+                    let InsData::StackSlot(self_offset) = ctx.cur_value
+                        .unwrap()
+                        .generate(file, ctx)?
                 {
                     writeln!(file, "  sw    t0, {}(sp)", self_offset);
                 }
@@ -189,7 +184,7 @@ pub fn generate_op_asm(
     binary_op: BinaryOp,
     left: &String,
     right: &String,
-    result: &String,
+    result: &String
 ) {
     match binary_op {
         BinaryOp::Sub => {
@@ -270,9 +265,6 @@ impl<'a> Context<'a> {
 
     fn find_value_stack_offset(&self, value: Value) -> Result<i32> {
         println!("look ip value {:#?}", value.clone());
-        self.value_2_stack_offset
-            .get(&value)
-            .ok_or(Error::SysError)
-            .cloned()
+        self.value_2_stack_offset.get(&value).ok_or(Error::SysError).cloned()
     }
 }
