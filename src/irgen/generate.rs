@@ -111,6 +111,7 @@ impl GenerateProgram for VarDef {
                     None => {
                         let func_data = program.func_mut(ctx.curr_fuc.unwrap());
                         let alloc = func_data.dfg_mut().new_value().alloc(Type::get_i32());
+                        func_data.dfg_mut().set_value_name(alloc, Some(format!("@{}", id)));
                         func_data
                             .layout_mut()
                             .bb_mut(ctx.curr_block.unwrap())
@@ -130,6 +131,7 @@ impl GenerateProgram for VarDef {
                         let exp_val = init_val.generate(program, ctx)?;
                         let func_data = program.func_mut(ctx.curr_fuc.unwrap());
                         let alloc = func_data.dfg_mut().new_value().alloc(Type::get_i32());
+                        func_data.dfg_mut().set_value_name(alloc, Some(format!("@{}", id)));
                         let store_ins = func_data.dfg_mut().new_value().store(exp_val, alloc);
                         func_data
                             .layout_mut()

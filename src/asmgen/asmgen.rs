@@ -38,7 +38,7 @@ impl GenerateAsm for koopa::ir::FunctionData {
             for &inst in node.insts().keys() {
                 println!("generating value data {:#?}", inst);
                 // 对于每个指令进行代码生成,注意,value无须递归;
-                // 及联关系已经体现在IR中 例如 %1 = 1 + 1 ， %2 = 1 + 1%
+                // 及联关系已经体现在IR layout中指令顺序中 例如 %1 = 1 + 1 ， %2 = 1 + 1%
                 // 先生成1%,再生成2%;
                 let value_data = self.dfg().value(inst);
                 ctx.cur_value = Some(inst);
@@ -84,6 +84,7 @@ impl GenerateAsm for koopa::ir::entities::ValueData {
 
             ValueKind::Alloc(_) => {
                 // nothing happens,allocation on stack at compileTime
+                // no corresponding instruction needs to be generated
                 Ok(())
             }
 
