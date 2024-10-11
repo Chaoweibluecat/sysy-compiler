@@ -31,8 +31,10 @@ BlockItem: BlockItem = {
 }
 
 Stmt: Stmt = {
-  "return" <exp: Exp> ";" => Stmt::Ret(<>),
   <lval: LVal>  "=" <exp: Exp> ";" => Stmt::Assign(<>),
+  <exp: (<Exp>)?> ";" => Stmt::Exp(<>), 
+  Block => Stmt::Block(Box::new(<>)), 
+  "return" <exp: Exp> ";" => Stmt::Ret(<>),
 }
 
 Decl: Decl = {

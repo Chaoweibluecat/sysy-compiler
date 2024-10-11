@@ -163,4 +163,6 @@ pub struct LVal {
 pub enum Stmt {
     Ret(Exp),
     Assign(LVal, Exp),
+    Exp(Option<Exp>),
+    Block(Box<Block>),
 }

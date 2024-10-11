@@ -53,9 +53,11 @@ impl GenerateProgram for Block {
     type Out = ();
 
     fn generate(&self, program: &mut Program, ctx: &mut Context) -> Result<Self::Out> {
+        ctx.new_scope();
         for ele in self.items.iter() {
             ele.generate(program, ctx)?;
         }
+        ctx.leave_scope();
         Ok(())
     }
 }
@@ -105,7 +107,7 @@ impl GenerateProgram for VarDef {
     fn generate(&self, program: &mut Program, ctx: &mut Context) -> Result<Self::Out> {
         match self {
             VarDef::IdOnly(id) => {
-                let prev_def = ctx.look_up_symbol(id);
+                let prev_def = ctx.look_up_in_curr_scope(id);
                 match prev_def {
                     Some(_) => Err(Error::DuplicateDecl),
                     None => {
@@ -118,13 +120,13 @@ impl GenerateProgram for VarDef {
                             .insts_mut()
                             .push_key_back(alloc)
                             .map_err(|_| Error::SysError)?;
-                        ctx.insert(&id, ASTValue::Variable(alloc));
+                        ctx.insert_symbol(&id, ASTValue::Variable(alloc));
                         Ok(())
                     }
                 }
             }
             VarDef::Assign(id, init_val) => {
-                let prev_def = ctx.look_up_symbol(id);
+                let prev_def = ctx.look_up_in_curr_scope(id);
                 match prev_def {
                     Some(_) => Err(Error::DuplicateDecl),
                     None => {
@@ -138,7 +140,7 @@ impl GenerateProgram for VarDef {
                             .bb_mut(ctx.curr_block.unwrap())
                             .insts_mut()
                             .extend([alloc, store_ins]);
-                        ctx.insert(&format!("{}", id).to_owned(), ASTValue::Variable(alloc));
+                        ctx.insert_symbol(&format!("{}", id).to_owned(), ASTValue::Variable(alloc));
                         Ok(())
                     }
                 }
@@ -226,6 +228,12 @@ impl GenerateProgram for Stmt {
                     }
                 }
             }
+            Stmt::Exp(exp) => {
+                exp.as_ref().map(|e| { e.generate(program, ctx) });
+                Ok(())
+            }
+            Stmt::Block(block) => { block.generate(program, ctx) }
+            _ => unimplemented!(),
         }
     }
 }
