@@ -164,11 +164,11 @@ pub enum Stmt {
     Ret(Exp),
     Assign(LVal, Exp),
     Exp(Option<Exp>),
-    IfELse(Exp, Box<Stmt>, Box<Stmt>),
+    IfElse(Exp, Box<Stmt>, Box<Stmt>),
     Block(Box<Block>),
 }
 
 pub enum IfStmt {
     Stmt(Stmt),
-    IfStmt(Exp, Stmt),
+    IfStmt(Exp, Box<IfStmt>),
 }

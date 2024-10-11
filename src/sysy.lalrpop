@@ -30,15 +30,15 @@ BlockItem: BlockItem = {
   Stmt  => BlockItem::Stmt(<>),
 }
 IfStmt: IfStmt = {
-    Stmt => IfStmt:Stmt(<>),
-    "if" "(" <cond_exp: Exp> ")" <then_stmt: Stmt> => IfStmt::IfStmt(<>),
+    Stmt => IfStmt::Stmt(<>),
+    "if" "(" <cond_exp: Exp> ")" <then_stmt: IfStmt> => IfStmt::IfStmt(cond_exp, Box::new(then_stmt)),
 }
 
 Stmt: Stmt = {
   <lval: LVal>  "=" <exp: Exp> ";" => Stmt::Assign(<>),
   <exp: (<Exp>)?> ";" => Stmt::Exp(<>), 
   Block => Stmt::Block(Box::new(<>)), 
-  "if" "(" <cond_exp: Exp> ")" <then_stmt: Stmt> "else" <else_stmt: IfStmt> =>
+  "if" "(" <cond_exp: Exp> ")" <then_stmt: Stmt> "else" <else_stmt: Stmt> =>
         Stmt::IfElse(cond_exp, Box::new(then_stmt), Box::new(else_stmt)),
   "return" <exp: Exp> ";" => Stmt::Ret(<>),
 }
