@@ -164,11 +164,12 @@ pub enum Stmt {
     Ret(Exp),
     Assign(LVal, Exp),
     Exp(Option<Exp>),
-    IfElse(Exp, Box<Stmt>, Box<Stmt>),
+    IfStmt(IfStmt),
     Block(Box<Block>),
 }
-
-pub enum IfStmt {
-    Stmt(Stmt),
-    IfStmt(Exp, Box<IfStmt>),
+#[derive(Debug)]
+pub struct IfStmt {
+    pub cond: Exp,
+    pub then: Box<Stmt>,
+    pub else_stmt: Option<Box<Stmt>>,
 }
