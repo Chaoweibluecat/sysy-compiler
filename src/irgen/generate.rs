@@ -208,7 +208,7 @@ impl GenerateProgram for Stmt {
                     .unwrap();
                 Ok(())
             }
-
+            Stmt::IfStmt(if_stmt) => if_stmt.gene,
             Stmt::Assign(lval, exp) => {
                 let sym_val = ctx.look_up_symbol(&lval.id);
                 match sym_val {
@@ -238,6 +238,23 @@ impl GenerateProgram for Stmt {
     }
 }
 
+impl GenerateProgram for IfStmt {
+    type Out = ();
+
+    fn generate(&self, program: &mut Program, ctx: &mut Context) -> Result<Self::Out> {
+        let cond_value = self.cond.generate(program, ctx);
+        let func_data = program.func_mut(ctx.curr_fuc.unwrap());
+        let then_block = func_data.dfg_mut().new_bb().basic_block(Some("then".into()));
+        func_data.layout_mut().bbs_mut().push_key_back(then_block);
+        ctx.curr_block = Some(then_block);
+        self.then.generate(program, ctx);
+        let else_block = func_data.dfg_mut().new_bb().basic_block(Some("else".into()));
+        ctx.curr_block = Some(else_block);
+
+        func_data.layout_mut().bbs_mut().push_key_back(else_block);
+        Ok(())
+    }
+}
 impl GenerateProgram for Exp {
     type Out = Value;
 
