@@ -1,7 +1,7 @@
-use std::{ collections::HashMap, fs::File };
+use std::{collections::HashMap, fs::File};
 
 use asmgen::GenerateAsm;
-use koopa::ir::{ Function, Program, Value };
+use koopa::ir::{BasicBlock, Function, Program, Value};
 mod asmgen;
 use crate::irgen::Result;
 
@@ -11,6 +11,7 @@ pub struct Context<'a> {
     value_2_stack_offset: HashMap<Value, i32>,
     cur_fuc_stack_allocation: Option<i32>,
     cur_value: Option<Value>,
+    basic_block_to_label_name: HashMap<BasicBlock, String>,
 }
 
 pub enum InsData {
@@ -27,6 +28,7 @@ pub fn generate_asm(program: &Program, path: &str) -> Result<()> {
             value_2_stack_offset: HashMap::new(),
             cur_fuc_stack_allocation: None,
             cur_value: None,
-        })
+            basic_block_to_label_name: HashMap::new(),
+        }),
     )
 }

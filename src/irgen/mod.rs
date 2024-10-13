@@ -1,8 +1,8 @@
-use std::collections::{ HashMap, LinkedList };
+use std::collections::{HashMap, LinkedList};
 
 use crate::ast::CompUnit;
 use generate::GenerateProgram;
-use koopa::ir::{ BasicBlock, Function, Program, Value };
+use koopa::ir::{BasicBlock, Function, Program, Value};
 
 mod eval;
 mod generate;
@@ -18,7 +18,6 @@ pub enum Error {
 pub struct Context {
     pub curr_fuc: Option<Function>,
     pub curr_block: Option<BasicBlock>,
-    pub symbol_table: HashMap<String, ASTValue>,
     pub scopes: LinkedList<HashMap<String, ASTValue>>,
 }
 
@@ -36,13 +35,11 @@ impl Context {
         Context {
             curr_fuc: None,
             curr_block: None,
-            symbol_table: HashMap::new(),
             scopes: LinkedList::new(),
         }
     }
 
     pub fn insert_symbol(&mut self, name: &String, value: ASTValue) {
-        self.symbol_table.insert(name.clone(), value);
         self.scopes.front_mut().unwrap().insert(name.clone(), value);
     }
 
