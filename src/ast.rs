@@ -167,7 +167,14 @@ pub enum Stmt {
     IfStmt(IfStmt),
     Block(Box<Block>),
     While(While),
+    Break(Break),
+    Continue(Continue),
 }
+#[derive(Debug)]
+pub struct Break {}
+
+#[derive(Debug)]
+pub struct Continue {}
 #[derive(Debug)]
 pub struct IfStmt {
     pub cond: Exp,

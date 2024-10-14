@@ -42,6 +42,8 @@ ClosedStmt: Stmt = {
         Stmt::IfStmt(IfStmt{cond, then:Box::new(then), else_stmt:Some(Box::new(else_stmt))}),
   "return" <exp: Exp> ";" => Stmt::Ret(<>),
   "while" "(" <cond: Exp> ")" <body: ClosedStmt> => Stmt::While(While {cond, body: Box::new(body)}),
+  "break" ";" => Stmt::Break(Break{}),
+  "continue" ";" => Stmt::Continue(Continue{}),
 }
 
 OpenStmt: Stmt = {

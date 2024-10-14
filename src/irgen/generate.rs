@@ -3,7 +3,6 @@ use crate::{ ast::*, irgen::{ Context, Result } };
 use koopa::ir::{
     builder::{ BasicBlockBuilder, LocalInstBuilder, ValueBuilder },
     BinaryOp,
-    Function,
     FunctionData,
     Program,
     Type,
@@ -234,7 +233,47 @@ impl GenerateProgram for Stmt {
                 Ok(())
             }
             Stmt::Block(block) => block.generate(program, ctx),
+            Stmt::Break(break_stmt) => break_stmt.generate(program, ctx),
+            Stmt::Continue(cont) => cont.generate(program, ctx),
             _ => unimplemented!(),
+        }
+    }
+}
+
+impl GenerateProgram for Break {
+    type Out = ();
+
+    fn generate(&self, program: &mut Program, ctx: &mut Context) -> Result<Self::Out> {
+        match ctx.peek_break_dst() {
+            None => Err(Error::InvalidBreak),
+            Some(bb) => {
+                let jump = cur_func_mut(program, ctx).dfg_mut().new_value().jump(bb);
+                cur_func_mut(program, ctx)
+                    .layout_mut()
+                    .bb_mut(ctx.curr_block.unwrap())
+                    .insts_mut()
+                    .push_key_back(jump);
+                Ok(())
+            }
+        }
+    }
+}
+
+impl GenerateProgram for Continue {
+    type Out = ();
+
+    fn generate(&self, program: &mut Program, ctx: &mut Context) -> Result<Self::Out> {
+        match ctx.peek_cont_dst() {
+            None => Err(Error::InvalidContinue),
+            Some(bb) => {
+                let jump = cur_func_mut(program, ctx).dfg_mut().new_value().jump(bb);
+                cur_func_mut(program, ctx)
+                    .layout_mut()
+                    .bb_mut(ctx.curr_block.unwrap())
+                    .insts_mut()
+                    .push_key_back(jump);
+                Ok(())
+            }
         }
     }
 }
@@ -242,18 +281,37 @@ impl GenerateProgram for While {
     type Out = ();
 
     fn generate(&self, program: &mut Program, ctx: &mut Context) -> Result<Self::Out> {
-        let while_end = cur_func_mut(program, ctx)
+        let while_entry = cur_func_mut(program, ctx)
             .dfg_mut()
             .new_bb()
-            .basic_block(Some("%while-end".to_owned()));
+            .basic_block(Some("%while-entry".to_owned()));
         let while_body = cur_func_mut(program, ctx)
             .dfg_mut()
             .new_bb()
             .basic_block(Some("%while_body".to_owned()));
-        cur_func_mut(program, ctx).layout_mut().bbs_mut().extend([while_body, while_end]);
+        let while_end = cur_func_mut(program, ctx)
+            .dfg_mut()
+            .new_bb()
+            .basic_block(Some("%while-end".to_owned()));
+        cur_func_mut(program, ctx)
+            .layout_mut()
+            .bbs_mut()
+            .extend([while_entry, while_body, while_end]);
 
+        // begin entry jump
+        let begin_while_entry_jump = cur_func_mut(program, ctx)
+            .dfg_mut()
+            .new_value()
+            .jump(while_entry);
+        cur_func_mut(program, ctx)
+            .layout_mut()
+            .bb_mut(ctx.curr_block.unwrap())
+            .insts_mut()
+            .push_key_back(begin_while_entry_jump);
+
+        ctx.curr_block = Some(while_entry);
         let cond = self.cond.generate(program, ctx)?;
-        let guard_branch = cur_func_mut(program, ctx)
+        let loop_cond = cur_func_mut(program, ctx)
             .dfg_mut()
             .new_value()
             .branch(cond, while_body, while_end);
@@ -261,21 +319,21 @@ impl GenerateProgram for While {
             .layout_mut()
             .bb_mut(ctx.curr_block.unwrap())
             .insts_mut()
-            .push_key_back(guard_branch);
+            .push_key_back(loop_cond);
 
+        ctx.push_break_and_continue_dst(while_end, while_entry);
         ctx.curr_block = Some(while_body);
         self.body.generate(program, ctx)?;
-
-        let body_check = self.cond.generate(program, ctx)?;
-        let body_end_check = cur_func_mut(program, ctx)
+        let re_check_while_cond_jump = cur_func_mut(program, ctx)
             .dfg_mut()
             .new_value()
-            .branch(body_check, while_body, while_end);
+            .jump(while_entry);
         cur_func_mut(program, ctx)
             .layout_mut()
             .bb_mut(ctx.curr_block.unwrap())
             .insts_mut()
-            .push_key_back(body_end_check);
+            .push_key_back(re_check_while_cond_jump);
+        ctx.pop_break_and_continue_dst();
         ctx.curr_block = Some(while_end);
         Ok(())
     }
