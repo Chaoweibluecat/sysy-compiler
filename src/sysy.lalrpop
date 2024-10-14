@@ -41,12 +41,14 @@ ClosedStmt: Stmt = {
     "if" "(" <cond: Exp> ")" <then: ClosedStmt> "else" <else_stmt: ClosedStmt> =>
         Stmt::IfStmt(IfStmt{cond, then:Box::new(then), else_stmt:Some(Box::new(else_stmt))}),
   "return" <exp: Exp> ";" => Stmt::Ret(<>),
+  "while" "(" <cond: Exp> ")" <body: ClosedStmt> => Stmt::While(While {cond, body: Box::new(body)}),
 }
 
 OpenStmt: Stmt = {
     "if" "(" <cond: Exp> ")" <then: Stmt> => Stmt::IfStmt(IfStmt{cond, then: Box::new(then), else_stmt: None}),
     "if" "(" <cond: Exp> ")" <then: ClosedStmt> "else" <else_stmt: OpenStmt> =>
         Stmt::IfStmt(IfStmt{cond, then:Box::new(then), else_stmt:Some(Box::new(else_stmt))}),
+    "while" "(" <cond: Exp> ")" <body: OpenStmt> => Stmt::While(While {cond, body: Box::new(body)}),
 }
 
 

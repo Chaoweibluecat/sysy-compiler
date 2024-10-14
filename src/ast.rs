@@ -166,10 +166,16 @@ pub enum Stmt {
     Exp(Option<Exp>),
     IfStmt(IfStmt),
     Block(Box<Block>),
+    While(While),
 }
 #[derive(Debug)]
 pub struct IfStmt {
     pub cond: Exp,
     pub then: Box<Stmt>,
     pub else_stmt: Option<Box<Stmt>>,
+}
+#[derive(Debug)]
+pub struct While {
+    pub cond: Exp,
+    pub body: Box<Stmt>,
 }

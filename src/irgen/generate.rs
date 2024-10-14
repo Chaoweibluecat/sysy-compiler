@@ -228,6 +228,7 @@ impl GenerateProgram for Stmt {
                     }
                 }
             }
+            Stmt::While(while_stmt) => while_stmt.generate(program, ctx),
             Stmt::Exp(exp) => {
                 exp.as_ref().map(|e| e.generate(program, ctx));
                 Ok(())
@@ -237,7 +238,48 @@ impl GenerateProgram for Stmt {
         }
     }
 }
+impl GenerateProgram for While {
+    type Out = ();
 
+    fn generate(&self, program: &mut Program, ctx: &mut Context) -> Result<Self::Out> {
+        let while_end = cur_func_mut(program, ctx)
+            .dfg_mut()
+            .new_bb()
+            .basic_block(Some("%while-end".to_owned()));
+        let while_body = cur_func_mut(program, ctx)
+            .dfg_mut()
+            .new_bb()
+            .basic_block(Some("%while_body".to_owned()));
+        cur_func_mut(program, ctx).layout_mut().bbs_mut().extend([while_body, while_end]);
+
+        let cond = self.cond.generate(program, ctx)?;
+        let guard_branch = cur_func_mut(program, ctx)
+            .dfg_mut()
+            .new_value()
+            .branch(cond, while_body, while_end);
+        cur_func_mut(program, ctx)
+            .layout_mut()
+            .bb_mut(ctx.curr_block.unwrap())
+            .insts_mut()
+            .push_key_back(guard_branch);
+
+        ctx.curr_block = Some(while_body);
+        self.body.generate(program, ctx)?;
+
+        let body_check = self.cond.generate(program, ctx)?;
+        let body_end_check = cur_func_mut(program, ctx)
+            .dfg_mut()
+            .new_value()
+            .branch(body_check, while_body, while_end);
+        cur_func_mut(program, ctx)
+            .layout_mut()
+            .bb_mut(ctx.curr_block.unwrap())
+            .insts_mut()
+            .push_key_back(body_end_check);
+        ctx.curr_block = Some(while_end);
+        Ok(())
+    }
+}
 impl GenerateProgram for IfStmt {
     type Out = ();
 
