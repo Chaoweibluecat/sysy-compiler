@@ -1,9 +1,6 @@
 int main()
 {
   int a = 0;
-  if (a)
-  {
-    return 1;
-  }
-  return 2;
+  int b = 1;
+  return a && b;
 }

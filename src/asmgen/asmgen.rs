@@ -1,10 +1,10 @@
-use std::{fs::File, io::Write};
+use std::{ fs::File, io::Write };
 
 use super::InsData;
 use crate::asmgen::Context;
-use crate::irgen::{Error, Result};
+use crate::irgen::{ Error, Result };
 use koopa::ir::entities::ValueData;
-use koopa::ir::{entities, BasicBlock, BinaryOp, FunctionData, Type, Value, ValueKind};
+use koopa::ir::{ entities, BasicBlock, BinaryOp, FunctionData, Type, Value, ValueKind };
 // koopa IR => ASM
 pub trait GenerateAsm {
     fn generate(&self, file: &mut File, ctx: &mut Context) -> Result<Self::Out>;
@@ -33,11 +33,7 @@ impl GenerateAsm for koopa::ir::FunctionData {
         let name = self.name()[1..].to_string();
         writeln!(file, "{}:", name);
         ctx.alloc_on_stack(self);
-        writeln!(
-            file,
-            "  addi  sp, sp, -{}",
-            ctx.cur_fuc_stack_allocation.unwrap()
-        );
+        writeln!(file, "  addi  sp, sp, -{}", ctx.cur_fuc_stack_allocation.unwrap());
         for (bb, node) in self.layout().bbs() {
             if let Some(name) = ctx.basic_block_to_label_name.get(bb) {
                 writeln!(file, "{}:", name);
@@ -85,11 +81,7 @@ impl GenerateAsm for koopa::ir::entities::ValueData {
                     }
                 }
                 // write epilogue at ext point
-                writeln!(
-                    file,
-                    "  addi  sp, sp,  {}",
-                    ctx.cur_fuc_stack_allocation.unwrap()
-                );
+                writeln!(file, "  addi  sp, sp,  {}", ctx.cur_fuc_stack_allocation.unwrap());
                 writeln!(file, "  ret");
                 Ok(())
             }
@@ -129,8 +121,10 @@ impl GenerateAsm for koopa::ir::entities::ValueData {
                     writeln!(file, "  lw    t0, {}(sp)", offset);
                 }
 
-                if let InsData::StackSlot(self_offset) =
-                    ctx.cur_value.unwrap().generate(file, ctx)?
+                if
+                    let InsData::StackSlot(self_offset) = ctx.cur_value
+                        .unwrap()
+                        .generate(file, ctx)?
                 {
                     writeln!(file, "  sw    t0, {}(sp)", self_offset);
                 }
@@ -188,14 +182,7 @@ impl GenerateAsm for koopa::ir::values::Branch {
             writeln!(file, "  lw    t0, {}(sp)", offset);
             let true_bb = self.true_bb();
             let false_bb = self.false_bb();
-            let true_block_name = ctx
-                .cur_func()
-                .dfg()
-                .bb(true_bb)
-                .name()
-                .as_ref()
-                .unwrap()
-                .clone();
+            let true_block_name = ctx.cur_func().dfg().bb(true_bb).name().as_ref().unwrap().clone();
             let true_label_name = label_name(true_block_name);
             let false_block_name = ctx
                 .cur_func()
@@ -245,7 +232,7 @@ pub fn generate_op_asm(
     binary_op: BinaryOp,
     left: &String,
     right: &String,
-    result: &String,
+    result: &String
 ) {
     match binary_op {
         BinaryOp::Sub => {
@@ -326,10 +313,7 @@ impl<'a> Context<'a> {
 
     fn find_value_stack_offset(&self, value: Value) -> Result<i32> {
         println!("look ip value {:#?}", value.clone());
-        self.value_2_stack_offset
-            .get(&value)
-            .ok_or(Error::SysError)
-            .cloned()
+        self.value_2_stack_offset.get(&value).ok_or(Error::SysError).cloned()
     }
 
     // 我们让对functiondata的变量往往是作为临时变量存在；如果函数中一直存在这个引用，那么相当于一直有program的引用
