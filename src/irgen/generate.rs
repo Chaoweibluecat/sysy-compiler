@@ -197,22 +197,18 @@ impl GenerateProgram for Stmt {
 
     fn generate(&self, program: &mut Program, ctx: &mut Context) -> Result<Self::Out> {
         let cur_func_id = ctx.curr_fuc.unwrap();
-        let cur_block_id = ctx.curr_block.unwrap();
         match self {
             Stmt::Ret(exp) => {
                 let res_val = exp.generate(program, ctx)?;
-                let ret = program
-                    .func_mut(cur_func_id)
+                let ret = cur_func_mut(program, ctx)
                     .dfg_mut()
                     .new_value()
                     .ret(Some(res_val));
-                program
-                    .func_mut(cur_func_id)
+                cur_func_mut(program, ctx)
                     .layout_mut()
-                    .bb_mut(cur_block_id)
+                    .bb_mut(ctx.curr_block.unwrap())
                     .insts_mut()
-                    .push_key_back(ret)
-                    .unwrap();
+                    .push_key_back(ret);
                 Ok(())
             }
             Stmt::IfStmt(if_stmt) => if_stmt.generate(program, ctx),
@@ -320,7 +316,7 @@ impl GenerateProgram for Exp {
 
     fn generate(&self, program: &mut Program, ctx: &mut Context) -> Result<Self::Out> {
         match self {
-            Exp::LOrExp(add_exp) => add_exp.generate(program, ctx),
+            Exp::LOrExp(lor_exp) => lor_exp.generate(program, ctx),
         }
     }
 }
@@ -425,12 +421,78 @@ impl GenerateProgram for LOrExp {
             LOrExp::LAndExp(and) => and.generate(program, ctx),
             LOrExp::LOrExp(left, _, right) => {
                 let left_value: Value = left.generate(program, ctx)?;
-                let right_value = right.generate(program, ctx)?;
                 let func_data = program.func_mut(ctx.curr_fuc.unwrap());
                 let zero = func_data.dfg_mut().new_value().integer(0);
+                let res: Value = func_data.dfg_mut().new_value().alloc(Type::get_i32());
                 let left_bool = register_binary(program, ctx, left_value, zero, BinaryOp::NotEq)?;
+                let then_block = cur_func_mut(program, ctx)
+                    .dfg_mut()
+                    .new_bb()
+                    .basic_block(Some("%then_block".into()));
+                let else_block = cur_func_mut(program, ctx)
+                    .dfg_mut()
+                    .new_bb()
+                    .basic_block(Some("%else".into()));
+                let end_block = cur_func_mut(program, ctx)
+                    .dfg_mut()
+                    .new_bb()
+                    .basic_block(Some("%if-end".into()));
+                let branch = cur_func_mut(program, ctx)
+                    .dfg_mut()
+                    .new_value()
+                    .branch(left_bool, then_block, else_block);
+
+                cur_func_mut(program, ctx)
+                    .layout_mut()
+                    .bb_mut(ctx.curr_block.unwrap())
+                    .insts_mut()
+                    .extend([res, branch]);
+                cur_func_mut(program, ctx)
+                    .layout_mut()
+                    .bbs_mut()
+                    .extend([then_block, else_block, end_block]);
+
+                ctx.curr_block = Some(then_block);
+                let inst_1 = cur_func_mut(program, ctx).dfg_mut().new_value().integer(1);
+                let store_res: Value = cur_func_mut(program, ctx)
+                    .dfg_mut()
+                    .new_value()
+                    .store(inst_1, res);
+                let then_jump = cur_func_mut(program, ctx)
+                    .dfg_mut()
+                    .new_value()
+                    .jump(end_block);
+                cur_func_mut(program, ctx)
+                    .layout_mut()
+                    .bb_mut(then_block)
+                    .insts_mut()
+                    .extend([store_res, then_jump]);
+
+                ctx.curr_block = Some(else_block);
+                let right_value = right.generate(program, ctx)?;
                 let right_bool = register_binary(program, ctx, right_value, zero, BinaryOp::NotEq)?;
-                register_binary(program, ctx, left_bool, right_bool, BinaryOp::Add)
+                let store_res: Value = cur_func_mut(program, ctx)
+                    .dfg_mut()
+                    .new_value()
+                    .store(right_bool, res);
+                let then_jump = cur_func_mut(program, ctx)
+                    .dfg_mut()
+                    .new_value()
+                    .jump(end_block);
+                cur_func_mut(program, ctx)
+                    .layout_mut()
+                    .bb_mut(else_block)
+                    .insts_mut()
+                    .extend([store_res, then_jump]);
+
+                ctx.curr_block = Some(end_block);
+                let load = cur_func_mut(program, ctx).dfg_mut().new_value().load(res);
+                cur_func_mut(program, ctx)
+                    .layout_mut()
+                    .bb_mut(end_block)
+                    .insts_mut()
+                    .push_key_back(load);
+                Ok(load)
             }
         }
     }

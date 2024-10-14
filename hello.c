@@ -1,4 +1,9 @@
-int main() {
-  const int x = 1;
-  return x;
+int main()
+{
+  int a = 0;
+  if (a)
+  {
+    return 1;
+  }
+  return 2;
 }

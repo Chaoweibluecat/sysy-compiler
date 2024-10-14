@@ -14,17 +14,17 @@ mod irgen;
 lalrpop_mod!(sysy);
 
 fn main() -> Result<()> {
-    // let input = "hello.c";
-    // let mode = "-123".to_owned();
-    // let output = "hello.koopa";
+    let input = "hello.c";
+    let mode = "-123".to_owned();
+    let output = "hello.koopa";
     let output_2 = "hello.asm";
 
-    let mut args = args();
-    args.next();
-    let mode = args.next().unwrap();
-    let input = args.next().unwrap();
-    args.next();
-    let output = args.next().unwrap();
+    // let mut args = args();
+    // args.next();
+    // let mode = args.next().unwrap();
+    // let input = args.next().unwrap();
+    // args.next();
+    // let output = args.next().unwrap();
     let input = read_to_string(input)?;
 
     // parse input file

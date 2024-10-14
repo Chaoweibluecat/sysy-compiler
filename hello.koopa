@@ -1,4 +1,17 @@
 fun @main(): i32 {
 %entry:
+  @a = alloc i32
+  store 0, @a
+  %0 = load @a
+  br %0, %then, %else
+
+%then:
   ret 1
+  jump %if-end
+
+%else:
+  jump %if-end
+
+%if-end:
+  ret 2
 }
