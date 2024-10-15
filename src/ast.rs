@@ -1,11 +1,12 @@
 #[derive(Debug)]
 pub struct CompUnit {
-    pub func_def: FuncDef,
+    pub func_defs: Vec<FuncDef>,
 }
 
 #[derive(Debug)]
 pub enum FuncType {
     Int,
+    Void,
 }
 #[derive(Debug)]
 pub enum Exp {
@@ -15,6 +16,7 @@ pub enum Exp {
 #[derive(Debug)]
 pub enum UnaryExp {
     PrimaryExp(PrimaryExp),
+    FuncCall(FuncCall),
     UnaryExp(UnaryOp, Box<UnaryExp>),
 }
 #[derive(Debug)]
@@ -98,7 +100,19 @@ pub enum UnaryOp {
 pub struct FuncDef {
     pub func_type: FuncType,
     pub ident: String,
+    pub params: Vec<FuncFParam>,
     pub block: Block,
+}
+#[derive(Debug)]
+pub struct FuncFParam {
+    pub b_type: BType,
+    pub name: String,
+}
+
+#[derive(Debug)]
+pub struct FuncCall {
+    pub func_name: String,
+    pub params: Vec<Exp>,
 }
 
 #[derive(Debug)]

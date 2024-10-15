@@ -12,26 +12,26 @@ fun @main(): i32 {
   %2 = eq 2, 0
   %3 = alloc i32
   br %2, %then_block_0, %else_0
-  store %4, %1
-  jump %ifend
 
 %ifend:
-  %5 = load %1
+  %4 = load %1
   @a = alloc i32
-  store %5, @a
-  %6 = load @a
-  ret %6
+  store %4, @a
+  %5 = load @a
+  ret %5
 
 %then_block_0:
   store 0, %3
   jump %ifend_0
 
 %else_0:
-  %7 = ne 3, 0
-  store %7, %3
+  %6 = ne 3, 0
+  store %6, %3
   jump %ifend_0
 
 %ifend_0:
-  %8 = load %3
-  %4 = ne %8, 0
+  %7 = load %3
+  %8 = ne %7, 0
+  store %8, %1
+  jump %ifend
 }

@@ -23,9 +23,6 @@ else:
   lw    t0, 8(sp)
   bnez t0, then_block
   j else
-  lw    t0, 36(sp)
-  sw    t0, 4(sp)
-  j ifend
 ifend:
   lw    t0, 4(sp)
   sw    t0, 16(sp)
@@ -56,3 +53,6 @@ ifend:
   xor   t0, t0, t1
   snez  t0, t0
   sw    t0, 36(sp)
+  lw    t0, 36(sp)
+  sw    t0, 4(sp)
+  j ifend
