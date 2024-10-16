@@ -15,6 +15,8 @@ pub enum Error {
     RedefineConstValue,
     InvalidBreak,
     InvalidContinue,
+    PushBlockFailed,
+    PushInstructionFailed,
 }
 
 pub struct Context {

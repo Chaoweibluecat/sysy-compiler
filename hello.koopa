@@ -17,85 +17,85 @@ fun @main(): i32 {
   store %3, @a
   jump %while_entry_0
 
-%while_end:
-  %4 = load @a
-  %5 = load @b
-  %6 = add %4, %5
-  ret %6
-
 %while_entry_0:
-  %7 = load @a
-  %8 = lt %7, 5
-  %9 = eq %8, 0
-  %10 = alloc i32
-  br %9, %then_block, %else
+  %4 = load @a
+  %5 = lt %4, 5
+  %6 = eq %5, 0
+  %7 = alloc i32
+  br %6, %then_block, %else
+
+%then_block:
+  store 0, %7
+  jump %ifend
+
+%else:
+  %8 = load @b
+  %9 = lt %8, 10
+  %10 = ne %9, 0
+  store %10, %7
+  jump %ifend
+
+%ifend:
+  %11 = load %7
+  br %11, %while_body_0, %while_end_0
 
 %while_body_0:
-  %11 = load @b
-  %12 = add %11, 1
-  store %12, @b
+  %12 = load @b
+  %13 = add %12, 1
+  store %13, @b
   jump %while_entry_0
 
 %while_end_0:
   jump %while_entry_1
 
-%then_block:
-  store 0, %10
-  jump %ifend
-
-%else:
-  %13 = load @b
-  %14 = lt %13, 10
-  %15 = ne %14, 0
-  store %15, %10
-  jump %ifend
-
-%ifend:
-  %16 = load %10
-  br %16, %while_body_0, %while_end_0
-
 %while_entry_1:
-  %17 = load @b
-  %18 = lt %17, 20
-  br %18, %while_body_1, %while_end_1
+  %14 = load @b
+  %15 = lt %14, 20
+  br %15, %while_body_1, %while_end_1
 
 %while_body_1:
   jump %while_entry_2
 
-%while_end_1:
-  jump %while_entry
-
 %while_entry_2:
-  %19 = load @b
-  %20 = lt %19, 6
-  %21 = ne %20, 0
-  %22 = alloc i32
-  br %21, %then_block_0, %else_0
-
-%while_body_2:
-  %23 = load @b
-  %24 = add %23, 1
-  store %24, @b
-  jump %while_entry_2
-
-%while_end_2:
-  %25 = load @b
-  %26 = add %25, 2
-  store %26, @b
-  jump %while_entry_1
+  %16 = load @b
+  %17 = lt %16, 6
+  %18 = ne %17, 0
+  %19 = alloc i32
+  br %18, %then_block_0, %else_0
 
 %then_block_0:
-  store 1, %22
+  store 1, %19
   jump %ifend_0
 
 %else_0:
-  %27 = load @b
-  %28 = eq %27, 6
-  %29 = ne %28, 0
-  store %29, %22
+  %20 = load @b
+  %21 = eq %20, 6
+  %22 = ne %21, 0
+  store %22, %19
   jump %ifend_0
 
 %ifend_0:
-  %30 = load %22
-  br %30, %while_body_2, %while_end_2
+  %23 = load %19
+  br %23, %while_body_2, %while_end_2
+
+%while_body_2:
+  %24 = load @b
+  %25 = add %24, 1
+  store %25, @b
+  jump %while_entry_2
+
+%while_end_2:
+  %26 = load @b
+  %27 = add %26, 2
+  store %27, @b
+  jump %while_entry_1
+
+%while_end_1:
+  jump %while_entry
+
+%while_end:
+  %28 = load @a
+  %29 = load @b
+  %30 = add %28, %29
+  ret %30
 }

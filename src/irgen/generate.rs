@@ -2,6 +2,7 @@ use super::{ eval::Eval, ASTValue, Error };
 use crate::{ ast::*, irgen::{ Context, Result } };
 use koopa::ir::{
     builder::{ BasicBlockBuilder, LocalInstBuilder, ValueBuilder },
+    layout::BasicBlockNode,
     BasicBlock,
     BinaryOp,
     FunctionData,
@@ -38,13 +39,7 @@ impl GenerateProgram for FuncDef {
         let main = program.func_mut(main_handle);
         ctx.curr_fuc = Some(main_handle);
         let entry1 = main.dfg_mut().new_bb().basic_block(Some("%entry".to_string()));
-        main
-            .layout_mut()
-            .bbs_mut()
-            .push_key_back(entry1)
-            .map_err(|_| Error::SysError)?;
-
-        ctx.curr_block = Some(entry1);
+        push_block(program, ctx, entry1)?;
         self.block.generate(program, ctx)?;
         remove_useless_block(program, ctx);
         Ok(())
@@ -115,12 +110,7 @@ impl GenerateProgram for VarDef {
                         let func_data = program.func_mut(ctx.curr_fuc.unwrap());
                         let alloc = func_data.dfg_mut().new_value().alloc(Type::get_i32());
                         func_data.dfg_mut().set_value_name(alloc, Some(format!("@{}", id)));
-                        func_data
-                            .layout_mut()
-                            .bb_mut(ctx.curr_block.unwrap())
-                            .insts_mut()
-                            .push_key_back(alloc)
-                            .map_err(|_| Error::SysError)?;
+                        push_back_value_as_ins(program, ctx, alloc)?;
                         ctx.insert_symbol(&id, ASTValue::Variable(alloc));
                         Ok(())
                     }
@@ -136,11 +126,7 @@ impl GenerateProgram for VarDef {
                         let alloc = func_data.dfg_mut().new_value().alloc(Type::get_i32());
                         func_data.dfg_mut().set_value_name(alloc, Some(format!("@{}", id)));
                         let store_ins = func_data.dfg_mut().new_value().store(exp_val, alloc);
-                        func_data
-                            .layout_mut()
-                            .bb_mut(ctx.curr_block.unwrap())
-                            .insts_mut()
-                            .extend([alloc, store_ins]);
+                        push_back_values_as_ins(program, ctx, vec![alloc, store_ins]);
                         ctx.insert_symbol(&format!("{}", id).to_owned(), ASTValue::Variable(alloc));
                         Ok(())
                     }
@@ -194,19 +180,14 @@ impl GenerateProgram for Stmt {
     type Out = ();
 
     fn generate(&self, program: &mut Program, ctx: &mut Context) -> Result<Self::Out> {
-        let cur_func_id = ctx.curr_fuc.unwrap();
         match self {
             Stmt::Ret(exp) => {
                 // todo 优化: 基本块的出口是唯一的,
                 // 翻译完return后可以在ctx中关闭基本块, 这样一些递归后序操作（比如if-else的尾部跳转指令）就不用加进去
                 let res_val = exp.generate(program, ctx)?;
                 let ret = cur_func_mut(program, ctx).dfg_mut().new_value().ret(Some(res_val));
-                cur_func_mut(program, ctx)
-                    .layout_mut()
-                    .bb_mut(ctx.curr_block.unwrap())
-                    .insts_mut()
-                    .push_key_back(ret);
-                next_bb(program, ctx);
+                push_back_value_as_ins(program, ctx, ret)?;
+                next_bb(program, ctx)?;
                 Ok(())
             }
             Stmt::IfStmt(if_stmt) => if_stmt.generate(program, ctx),
@@ -218,13 +199,11 @@ impl GenerateProgram for Stmt {
                     Some(ASTValue::Variable(lval)) => {
                         let local_lval = lval.clone();
                         let rval = exp.generate(program, ctx)?;
-                        let func_data = program.func_mut(ctx.curr_fuc.unwrap());
-                        let store_ins = func_data.dfg_mut().new_value().store(rval, local_lval);
-                        func_data
-                            .layout_mut()
-                            .bb_mut(ctx.curr_block.unwrap())
-                            .insts_mut()
-                            .extend([store_ins]);
+                        let store_ins = cur_func_mut(program, ctx)
+                            .dfg_mut()
+                            .new_value()
+                            .store(rval, local_lval);
+                        push_back_value_as_ins(program, ctx, store_ins)?;
                         Ok(())
                     }
                 }
@@ -237,7 +216,6 @@ impl GenerateProgram for Stmt {
             Stmt::Block(block) => block.generate(program, ctx),
             Stmt::Break(break_stmt) => break_stmt.generate(program, ctx),
             Stmt::Continue(cont) => cont.generate(program, ctx),
-            _ => unimplemented!(),
         }
     }
 }
@@ -250,12 +228,8 @@ impl GenerateProgram for Break {
             None => Err(Error::InvalidBreak),
             Some(bb) => {
                 let jump = cur_func_mut(program, ctx).dfg_mut().new_value().jump(bb);
-                cur_func_mut(program, ctx)
-                    .layout_mut()
-                    .bb_mut(ctx.curr_block.unwrap())
-                    .insts_mut()
-                    .push_key_back(jump);
-                next_bb(program, ctx);
+                push_back_value_as_ins(program, ctx, jump)?;
+                next_bb(program, ctx)?;
                 Ok(())
             }
         }
@@ -270,12 +244,8 @@ impl GenerateProgram for Continue {
             None => Err(Error::InvalidContinue),
             Some(bb) => {
                 let jump = cur_func_mut(program, ctx).dfg_mut().new_value().jump(bb);
-                cur_func_mut(program, ctx)
-                    .layout_mut()
-                    .bb_mut(ctx.curr_block.unwrap())
-                    .insts_mut()
-                    .push_key_back(jump);
-                next_bb(program, ctx);
+                push_back_value_as_ins(program, ctx, jump)?;
+                next_bb(program, ctx)?;
                 Ok(())
             }
         }
@@ -303,38 +273,22 @@ impl GenerateProgram for While {
             .dfg_mut()
             .new_value()
             .jump(while_entry);
-        cur_func_mut(program, ctx)
-            .layout_mut()
-            .bb_mut(ctx.curr_block.unwrap())
-            .insts_mut()
-            .push_key_back(begin_while_entry_jump);
+        push_back_value_as_ins(program, ctx, begin_while_entry_jump)?;
 
-        push_block(program, ctx, while_entry);
+        push_block(program, ctx, while_entry)?;
         let cond = self.cond.generate(program, ctx)?;
         let loop_cond = cur_func_mut(program, ctx)
             .dfg_mut()
             .new_value()
             .branch(cond, while_body, while_end);
-        cur_func_mut(program, ctx)
-            .layout_mut()
-            .bb_mut(ctx.curr_block.unwrap())
-            .insts_mut()
-            .push_key_back(loop_cond);
-
+        push_back_value_as_ins(program, ctx, loop_cond)?;
         ctx.push_break_and_continue_dst(while_end, while_entry);
-        push_block(program, ctx, while_body);
+        push_block(program, ctx, while_body)?;
         self.body.generate(program, ctx)?;
-        let re_check_while_cond_jump = cur_func_mut(program, ctx)
-            .dfg_mut()
-            .new_value()
-            .jump(while_entry);
-        cur_func_mut(program, ctx)
-            .layout_mut()
-            .bb_mut(ctx.curr_block.unwrap())
-            .insts_mut()
-            .push_key_back(re_check_while_cond_jump);
+        let jump_back_to_cond = cur_func_mut(program, ctx).dfg_mut().new_value().jump(while_entry);
+        push_back_value_as_ins(program, ctx, jump_back_to_cond)?;
         ctx.pop_break_and_continue_dst();
-        push_block(program, ctx, while_end);
+        push_block(program, ctx, while_end)?;
         Ok(())
     }
 }
@@ -362,41 +316,23 @@ impl GenerateProgram for IfStmt {
             .dfg_mut()
             .new_value()
             .branch(cond_value, then_block, else_block);
-        cur_func_mut(program, ctx)
-            .layout_mut()
-            .bb_mut(ctx.curr_block.unwrap())
-            .insts_mut()
-            .push_key_back(br_ins)
-            .map_err(|_| Error::SysError)?;
-        cur_func_mut(program, ctx).layout_mut().bbs_mut().extend([then_block]);
+
+        push_back_value_as_ins(program, ctx, br_ins)?;
 
         // 生产then_block的语句。主体stmt + jump end指令
-        ctx.curr_block = Some(then_block);
+        push_block(program, ctx, then_block)?;
         self.then.generate(program, ctx)?;
         let then_jump = cur_func_mut(program, ctx).dfg_mut().new_value().jump(end_block);
-        cur_func_mut(program, ctx)
-            .layout_mut()
-            .bb_mut(ctx.curr_block.unwrap())
-            .insts_mut()
-            .push_key_back(then_jump)
-            .map_err(|_| Error::SysError)?;
+        push_back_value_as_ins(program, ctx, then_jump)?;
 
         // 生产else_block的语句。主体stmt + jump end指令
-        ctx.curr_block = Some(else_block);
-        cur_func_mut(program, ctx).layout_mut().bbs_mut().extend([else_block]);
-
+        push_block(program, ctx, else_block)?;
         self.else_stmt.as_ref().map(|stmt| stmt.generate(program, ctx));
         let else_jump = cur_func_mut(program, ctx).dfg_mut().new_value().jump(end_block);
-        cur_func_mut(program, ctx)
-            .layout_mut()
-            .bb_mut(ctx.curr_block.unwrap())
-            .insts_mut()
-            .push_key_back(else_jump)
-            .map_err(|_| Error::SysError)?;
+        push_back_value_as_ins(program, ctx, else_jump)?;
 
         // 设置当前块为end_block,作为if结束后后续指令所在的块
-        ctx.curr_block = Some(end_block);
-        cur_func_mut(program, ctx).layout_mut().bbs_mut().extend([end_block]);
+        push_block(program, ctx, end_block)?;
         Ok(())
     }
 }
@@ -499,7 +435,6 @@ impl GenerateProgram for LAndExp {
                 let func_data = program.func_mut(ctx.curr_fuc.unwrap());
                 let zero = func_data.dfg_mut().new_value().integer(0);
                 let res: Value = func_data.dfg_mut().new_value().alloc(Type::get_i32());
-
                 let left_false = register_binary(program, ctx, left_value, zero, BinaryOp::Eq)?;
                 let then_block = cur_func_mut(program, ctx)
                     .dfg_mut()
@@ -517,28 +452,18 @@ impl GenerateProgram for LAndExp {
                     .dfg_mut()
                     .new_value()
                     .branch(left_false, then_block, else_block);
-                cur_func_mut(program, ctx)
-                    .layout_mut()
-                    .bb_mut(ctx.curr_block.unwrap())
-                    .insts_mut()
-                    .extend([res, branch]);
-                cur_func_mut(program, ctx).layout_mut().bbs_mut().extend([then_block]);
+                push_back_values_as_ins(program, ctx, vec![res, branch]);
 
-                ctx.curr_block = Some(then_block);
+                push_block(program, ctx, then_block)?;
                 let inst_1 = cur_func_mut(program, ctx).dfg_mut().new_value().integer(0);
                 let store_res: Value = cur_func_mut(program, ctx)
                     .dfg_mut()
                     .new_value()
                     .store(inst_1, res);
                 let then_jump = cur_func_mut(program, ctx).dfg_mut().new_value().jump(end_block);
-                cur_func_mut(program, ctx)
-                    .layout_mut()
-                    .bb_mut(then_block)
-                    .insts_mut()
-                    .extend([store_res, then_jump]);
+                push_back_values_as_ins(program, ctx, vec![store_res, then_jump]);
 
-                ctx.curr_block = Some(else_block);
-                cur_func_mut(program, ctx).layout_mut().bbs_mut().extend([else_block]);
+                push_block(program, ctx, else_block)?;
 
                 let right_value = right.generate(program, ctx)?;
                 let right_bool = register_binary(program, ctx, right_value, zero, BinaryOp::NotEq)?;
@@ -547,21 +472,12 @@ impl GenerateProgram for LAndExp {
                     .new_value()
                     .store(right_bool, res);
                 let then_jump = cur_func_mut(program, ctx).dfg_mut().new_value().jump(end_block);
-                cur_func_mut(program, ctx)
-                    .layout_mut()
-                    .bb_mut(ctx.curr_block.unwrap())
-                    .insts_mut()
-                    .extend([store_res, then_jump]);
+                push_back_values_as_ins(program, ctx, vec![store_res, then_jump]);
 
-                ctx.curr_block = Some(end_block);
-                cur_func_mut(program, ctx).layout_mut().bbs_mut().extend([end_block]);
-
+                push_block(program, ctx, end_block)?;
                 let load = cur_func_mut(program, ctx).dfg_mut().new_value().load(res);
-                cur_func_mut(program, ctx)
-                    .layout_mut()
-                    .bb_mut(end_block)
-                    .insts_mut()
-                    .push_key_back(load);
+                push_back_value_as_ins(program, ctx, load)?;
+
                 Ok(load)
             }
         }
@@ -596,28 +512,17 @@ impl GenerateProgram for LOrExp {
                     .new_value()
                     .branch(left_bool, then_block, else_block);
 
-                cur_func_mut(program, ctx)
-                    .layout_mut()
-                    .bb_mut(ctx.curr_block.unwrap())
-                    .insts_mut()
-                    .extend([res, branch]);
-                cur_func_mut(program, ctx).layout_mut().bbs_mut().extend([then_block]);
-
-                ctx.curr_block = Some(then_block);
+                push_back_values_as_ins(program, ctx, vec![res, branch]);
+                push_block(program, ctx, then_block)?;
                 let inst_1 = cur_func_mut(program, ctx).dfg_mut().new_value().integer(1);
                 let store_res: Value = cur_func_mut(program, ctx)
                     .dfg_mut()
                     .new_value()
                     .store(inst_1, res);
                 let then_jump = cur_func_mut(program, ctx).dfg_mut().new_value().jump(end_block);
-                cur_func_mut(program, ctx)
-                    .layout_mut()
-                    .bb_mut(ctx.curr_block.unwrap())
-                    .insts_mut()
-                    .extend([store_res, then_jump]);
+                push_back_values_as_ins(program, ctx, vec![store_res, then_jump]);
 
-                ctx.curr_block = Some(else_block);
-                cur_func_mut(program, ctx).layout_mut().bbs_mut().extend([else_block]);
+                push_block(program, ctx, else_block)?;
 
                 let right_value = right.generate(program, ctx)?;
                 let right_bool = register_binary(program, ctx, right_value, zero, BinaryOp::NotEq)?;
@@ -626,22 +531,11 @@ impl GenerateProgram for LOrExp {
                     .new_value()
                     .store(right_bool, res);
                 let then_jump = cur_func_mut(program, ctx).dfg_mut().new_value().jump(end_block);
-                cur_func_mut(program, ctx)
-                    .layout_mut()
-                    .bb_mut(ctx.curr_block.unwrap())
-                    .insts_mut()
-                    .extend([store_res, then_jump]);
+                push_back_values_as_ins(program, ctx, vec![store_res, then_jump]);
 
-                ctx.curr_block = Some(end_block);
+                push_block(program, ctx, end_block)?;
                 let load = cur_func_mut(program, ctx).dfg_mut().new_value().load(res);
-                cur_func_mut(program, ctx).layout_mut().bbs_mut().extend([end_block]);
-
-                cur_func_mut(program, ctx)
-                    .layout_mut()
-                    .bb_mut(end_block)
-                    .insts_mut()
-                    .push_key_back(load);
-
+                push_back_value_as_ins(program, ctx, load)?;
                 Ok(load)
             }
         }
@@ -681,12 +575,7 @@ impl GenerateProgram for UnaryExp {
                                     ctx.curr_fuc.unwrap()
                                 );
                                 let load = func_data.dfg_mut().new_value().load(*lval);
-                                func_data
-                                    .layout_mut()
-                                    .bb_mut(ctx.curr_block.unwrap())
-                                    .insts_mut()
-                                    .push_key_back(load)
-                                    .map_err(|_| Error::SysError)?;
+                                push_back_value_as_ins(program, ctx, load)?;
                                 Ok(load)
                             }
                         }
@@ -706,13 +595,7 @@ impl GenerateProgram for UnaryExp {
                         };
                         let zero = func_data.dfg_mut().new_value().integer(0);
                         let res = func_data.dfg_mut().new_value().binary(koopa_op, zero, rhs);
-                        func_data
-                            .layout_mut()
-                            .bb_mut(ctx.curr_block.unwrap())
-                            .insts_mut()
-                            .push_key_back(res)
-                            .map_err(|_| Error::SysError)?;
-
+                        push_back_value_as_ins(program, ctx, res)?;
                         Ok(res)
                     }
                 }
@@ -760,15 +643,38 @@ fn remove_useless_block<'a, 'b>(program: &'a mut Program, ctx: &'b mut Context) 
     }
 }
 
-fn next_bb(program: &mut Program, ctx: &mut Context) {
+fn next_bb(program: &mut Program, ctx: &mut Context) -> Result<()> {
     let new_bb: koopa::ir::BasicBlock = cur_func_mut(program, ctx)
         .dfg_mut()
         .new_bb()
         .basic_block(None);
-    push_block(program, ctx, new_bb);
+    push_block(program, ctx, new_bb)
 }
 
-fn push_block(program: &mut Program, ctx: &mut Context, bb: BasicBlock) {
-    cur_func_mut(program, ctx).layout_mut().bbs_mut().push_key_back(bb);
+fn push_block(program: &mut Program, ctx: &mut Context, bb: BasicBlock) -> Result<()> {
+    cur_func_mut(program, ctx)
+        .layout_mut()
+        .bbs_mut()
+        .push_key_back(bb)
+        .map_err(|_| { Error::PushBlockFailed })?;
     ctx.curr_block = Some(bb);
+    Ok(())
+}
+
+/**
+ * 在当前函数的当前块的指令序列最后插入某个value
+ */
+fn push_back_value_as_ins(program: &mut Program, ctx: &mut Context, val: Value) -> Result<()> {
+    cur_block_mut(program, ctx)
+        .insts_mut()
+        .push_key_back(val)
+        .map_err(|_| { Error::PushInstructionFailed })?;
+    Ok(())
+}
+fn push_back_values_as_ins(program: &mut Program, ctx: &mut Context, vals: Vec<Value>) {
+    cur_block_mut(program, ctx).insts_mut().extend(vals);
+}
+
+fn cur_block_mut<'a, 'b>(program: &'a mut Program, ctx: &'b mut Context) -> &'a mut BasicBlockNode {
+    cur_func_mut(program, ctx).layout_mut().bb_mut(ctx.curr_block.unwrap())
 }
