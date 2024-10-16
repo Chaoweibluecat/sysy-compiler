@@ -1,6 +1,6 @@
 #[derive(Debug)]
 pub struct CompUnit {
-    pub func_def: FuncDef,
+    pub func_defs: Vec<FuncDef>,
 }
 
 #[derive(Debug)]

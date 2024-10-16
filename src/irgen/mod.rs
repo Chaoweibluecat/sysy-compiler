@@ -22,8 +22,65 @@ pub enum Error {
 pub struct Context {
     pub curr_fuc: Option<Function>,
     pub curr_block: Option<BasicBlock>,
-    pub scopes: LinkedList<HashMap<String, ASTValue>>,
+    pub scopes: Scopes,
     pub break_continue_dst: LinkedList<(BasicBlock, BasicBlock)>,
+}
+
+pub struct Scopes {
+    // sysy标准:
+    pub values: LinkedList<HashMap<String, ASTValue>>,
+    pub global_values: HashMap<String, ASTValue>,
+    pub func: HashMap<String, Function>,
+}
+
+impl Scopes {
+    pub fn new() -> Self {
+        Scopes {
+            values: LinkedList::new(),
+            global_values: HashMap::new(),
+            func: HashMap::new(),
+        }
+    }
+    pub fn register_function(&mut self, name: &String, func: Function) {
+        self.func.insert(name.clone(), func);
+    }
+
+    pub fn look_up_func(&mut self, name: &String) -> Option<&Function> {
+        self.func.get(name)
+    }
+
+    pub fn insert_global_symbol(&mut self, name: &String, value: ASTValue) {
+        self.global_values.insert(name.clone(), value);
+    }
+
+    pub fn look_up_global_symbol(&mut self, name: &String) -> Option<&ASTValue> {
+        self.global_values.get(name)
+    }
+
+    pub fn insert_symbol(&mut self, name: &String, value: ASTValue) {
+        self.values.front_mut().unwrap().insert(name.clone(), value);
+    }
+
+    fn look_up_symbol(&self, name: &str) -> Option<&ASTValue> {
+        self.values
+            .iter()
+            .find_map(|symbol_table| symbol_table.get(name))
+            .or_else(|| self.global_values.get(name))
+    }
+
+    fn look_up_in_curr_scope(&self, name: &str) -> Option<&ASTValue> {
+        self.values
+            .front()
+            .and_then(|symbol_table| symbol_table.get(name))
+            .or_else(|| self.global_values.get(name))
+    }
+
+    fn new_scope(&mut self) {
+        self.values.push_front(HashMap::new());
+    }
+    fn leave_scope(&mut self) {
+        self.values.pop_front();
+    }
 }
 
 // for each symbol,store parsedVal for const, store value for variable
@@ -40,14 +97,21 @@ impl Context {
         Context {
             curr_fuc: None,
             curr_block: None,
-            scopes: LinkedList::new(),
+            scopes: Scopes::new(),
             // while程序跳转目标地址;由于while可嵌套,所以应该是个栈
             break_continue_dst: LinkedList::new(),
         }
     }
 
+    pub fn insert_global_symbol(&mut self, name: &String, value: ASTValue) {
+        self.scopes.insert_global_symbol(name, value);
+    }
+
+    pub fn look_up_global_symbol(&mut self, name: &String) -> Option<&ASTValue> {
+        self.scopes.look_up_global_symbol(name)
+    }
     pub fn insert_symbol(&mut self, name: &String, value: ASTValue) {
-        self.scopes.front_mut().unwrap().insert(name.clone(), value);
+        self.scopes.insert_symbol(name, value);
     }
 
     pub fn push_break_and_continue_dst(&mut self, break_dst: BasicBlock, cont_dst: BasicBlock) {
@@ -66,23 +130,21 @@ impl Context {
     }
 
     fn look_up_symbol(&self, name: &str) -> Option<&ASTValue> {
-        self.scopes
-            .iter()
-            .filter_map(|symbol_table| symbol_table.get(name))
-            .next()
+        self.scopes.look_up_symbol(name)
     }
 
     fn look_up_in_curr_scope(&self, name: &str) -> Option<&ASTValue> {
-        self.scopes.front().unwrap().get(name)
+        self.scopes.look_up_in_curr_scope(name)
     }
 
     fn new_scope(&mut self) {
-        self.scopes.push_front(HashMap::new());
+        self.scopes.new_scope();
     }
     fn leave_scope(&mut self) {
-        self.scopes.pop_front();
+        self.scopes.leave_scope();
     }
 }
+
 /// Generates Koopa IR program for the given compile unit (ASTs).
 pub fn generate_program(comp_unit: &CompUnit) -> Result<Program> {
     let mut program = Program::new();

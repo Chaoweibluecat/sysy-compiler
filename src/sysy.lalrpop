@@ -13,15 +13,33 @@ match {
   _
 }
 
-pub CompUnit: CompUnit = <func_def: FuncDef> => CompUnit { <> };
+pub CompUnit: CompUnit = <func_defs: (FuncDef)*> => CompUnit { <> };
 
 FuncDef: FuncDef = {
-  <func_type: FuncType> <ident: Ident> "(" ")" <block: Block> => {
-    FuncDef { func_type, ident, params: vec![],  block}
+  <func_type: FuncType> <ident: Ident> "(" <params: (FuncFParams)?>")" <block: Block> => {
+    let func_params = match params {
+        None => vec![],
+        Some(p) => p,
+    };
+    FuncDef { func_type, ident, params: func_params, block}
   }
 }
 
-FuncType: FuncType = "int" => FuncType::Int;
+FuncFParams: Vec<FuncFParam> = {
+    <p1: FuncFParam> <mut p_list: ("," <FuncFParam>)*> => {
+        p_list.insert(0, p1);
+        p_list
+    }
+}
+
+FuncFParam: FuncFParam = {
+    <b_type: BType> <name: Ident>  => FuncFParam{<>}
+}
+
+FuncType: FuncType = {
+    "int" => FuncType::Int,
+    "void" => FuncType::Void,
+}
 
 Block: Block = "{" <items: (BlockItem)*> "}" => Block { <> };
 
@@ -81,7 +99,9 @@ ConstDecl: ConstDecl = {
   }
 }
 
-BType: BType = "int" => BType::Int;
+BType: BType = {
+    "int" => BType::Int
+}
 
 ConstDef: ConstDef = {
   <id: Ident> "=" <init_val: ConstInitVal> => {
@@ -102,12 +122,28 @@ Exp: Exp = {
     LOrExp => Exp::LOrExp(<>),
 };
 
-
-UnaryExp: UnaryExp = {
-    PrimaryExp => UnaryExp::PrimaryExp(<>),
-    <op:UnaryOp> <exp:UnaryExp> => UnaryExp::UnaryExp(op, Box::new(exp)),
+FuncCall: FuncCall = {
+    <func: Ident> "(" <params_op: (FuncRParams)?> ")" => {
+        let params = match params_op {
+            None => vec![],
+            Some(p) => p,
+        };
+        FuncCall{func_name:func, params}
+    }
 }
 
+FuncRParams : Vec<Exp> = {
+    <first: Exp> <mut exps: ("," <Exp>)*> => {
+        exps.insert(0, first);
+        exps
+    }
+}
+UnaryExp: UnaryExp = {
+    PrimaryExp => UnaryExp::PrimaryExp(<>),
+    FuncCall => UnaryExp::FuncCall(<>),
+    <op:UnaryOp> <exp:UnaryExp> => UnaryExp::UnaryExp(op, Box::new(exp)),
+}
+ 
 UnaryOp: UnaryOp = {
     "+" => UnaryOp::POSITIVE,
     "-" => UnaryOp::NEGATIVE,

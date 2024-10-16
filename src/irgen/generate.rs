@@ -8,6 +8,7 @@ use koopa::ir::{
     FunctionData,
     Program,
     Type,
+    TypeKind,
     Value,
 };
 pub trait GenerateProgram {
@@ -20,7 +21,9 @@ impl GenerateProgram for CompUnit {
     type Out = ();
 
     fn generate(&self, program: &mut Program, ctx: &mut Context) -> Result<Self::Out> {
-        self.func_def.generate(program, ctx)?;
+        for func_def in &self.func_defs {
+            func_def.generate(program, ctx)?;
+        }
         Ok(())
     }
 }
@@ -29,19 +32,49 @@ impl GenerateProgram for FuncDef {
     type Out = ();
 
     fn generate(&self, program: &mut Program, ctx: &mut Context) -> Result<Self::Out> {
-        let main_handle = program.new_func(
+        if let Some(_) = ctx.scopes.look_up_func(&self.ident) {
+            return Err(Error::DuplicateDecl);
+        }
+        let func_ret_type = match self.func_type {
+            FuncType::Int => Type::get_i32(),
+            FuncType::Void => Type::get_unit(),
+        };
+        let func_params = self.params
+            .iter()
+            .map(|param| {
+                let p_type = match param.b_type {
+                    BType::Int => Type::get_i32(),
+                };
+                (Some(format!("@{}", param.name).into()), p_type)
+            })
+            .collect();
+
+        let func = program.new_func(
             FunctionData::with_param_names(
                 format!("@{}", self.ident).into(),
-                vec![],
-                Type::get_i32()
+                func_params,
+                func_ret_type
             )
         );
-        let main = program.func_mut(main_handle);
-        ctx.curr_fuc = Some(main_handle);
+        ctx.curr_fuc = Some(func);
+
+        cur_func_mut(program, ctx).params();
+        ctx.scopes.register_function(&self.ident, func);
+        let main = program.func_mut(func);
         let entry1 = main.dfg_mut().new_bb().basic_block(Some("%entry".to_string()));
         push_block(program, ctx, entry1)?;
+        ctx.new_scope();
+        for i in 0..self.params.len() {
+            let val = cur_func_mut(program, ctx).params()[i].clone();
+            let alloc = cur_func_mut(program, ctx).dfg_mut().new_value().alloc(Type::get_i32());
+            let store = cur_func_mut(program, ctx).dfg_mut().new_value().store(val, alloc);
+            push_back_values_as_ins(program, ctx, vec![alloc, store]);
+            ctx.insert_symbol(&self.params[i].name, ASTValue::Variable(alloc));
+        }
         self.block.generate(program, ctx)?;
         remove_useless_block(program, ctx);
+        ctx.leave_scope();
+
         Ok(())
     }
 }
@@ -206,6 +239,7 @@ impl GenerateProgram for Stmt {
                         push_back_value_as_ins(program, ctx, store_ins)?;
                         Ok(())
                     }
+                    _ => unreachable!(),
                 }
             }
             Stmt::While(while_stmt) => while_stmt.generate(program, ctx),
@@ -322,6 +356,8 @@ impl GenerateProgram for IfStmt {
         // 生产then_block的语句。主体stmt + jump end指令
         push_block(program, ctx, then_block)?;
         self.then.generate(program, ctx)?;
+        // 注意经过stmt生成,当前块可能已经不是then_block了!(可能是别的控制流的end_block)
+        // 我们这里添加jump到end块需要在当前block而不是在then_block中
         let then_jump = cur_func_mut(program, ctx).dfg_mut().new_value().jump(end_block);
         push_back_value_as_ins(program, ctx, then_jump)?;
 
@@ -564,11 +600,14 @@ impl GenerateProgram for UnaryExp {
                         match value {
                             None => Err(super::Error::UnknownSymbol),
                             Some(ASTValue::Const(val)) => {
+                                let local_val = val.clone();
                                 // 表达式中的左值,如果是常量,直接取解析结果
-                                let func_data: &mut FunctionData = program.func_mut(
-                                    ctx.curr_fuc.unwrap()
-                                );
-                                Ok(func_data.dfg_mut().new_value().integer(*val))
+                                Ok(
+                                    cur_func_mut(program, ctx)
+                                        .dfg_mut()
+                                        .new_value()
+                                        .integer(local_val)
+                                )
                             }
                             Some(ASTValue::Variable(lval)) => {
                                 let func_data: &mut FunctionData = program.func_mut(
@@ -578,6 +617,7 @@ impl GenerateProgram for UnaryExp {
                                 push_back_value_as_ins(program, ctx, load)?;
                                 Ok(load)
                             }
+                            _ => unreachable!(),
                         }
                     }
                 }
@@ -600,11 +640,27 @@ impl GenerateProgram for UnaryExp {
                     }
                 }
             }
+            UnaryExp::FuncCall(func_call) => { func_call.generate(program, ctx) }
             _ => unimplemented!(),
         }
     }
 }
 
+impl GenerateProgram for FuncCall {
+    type Out = Value;
+
+    fn generate(&self, program: &mut Program, ctx: &mut Context) -> Result<Self::Out> {
+        let mut call_params = vec![];
+        for ele in &self.params {
+            let val = ele.generate(program, ctx).unwrap();
+            call_params.push(val);
+        }
+        let func = ctx.scopes.look_up_func(&self.func_name).unwrap().clone();
+        let call = cur_func_mut(program, ctx).dfg_mut().new_value().call(func, call_params);
+        push_back_value_as_ins(program, ctx, call);
+        Ok(call)
+    }
+}
 fn register_binary(
     program: &mut Program,
     ctx: &mut Context,
@@ -643,6 +699,10 @@ fn remove_useless_block<'a, 'b>(program: &'a mut Program, ctx: &'b mut Context) 
     }
 }
 
+/**
+ * 创建一个匿名块并设置为当前块,一般用于Ret,break,continue等对应 基本块出口指令翻译完后
+ *
+ */
 fn next_bb(program: &mut Program, ctx: &mut Context) -> Result<()> {
     let new_bb: koopa::ir::BasicBlock = cur_func_mut(program, ctx)
         .dfg_mut()
@@ -651,6 +711,9 @@ fn next_bb(program: &mut Program, ctx: &mut Context) -> Result<()> {
     push_block(program, ctx, new_bb)
 }
 
+/**
+ * 在当前函数的基本块序列中插入某个块,并将上下文中的"当前块"设置为此块
+ */
 fn push_block(program: &mut Program, ctx: &mut Context, bb: BasicBlock) -> Result<()> {
     cur_func_mut(program, ctx)
         .layout_mut()

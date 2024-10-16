@@ -1,101 +1,18 @@
+fun @half(@x: i32): i32 {
+%entry:
+  %0 = alloc i32
+  store @x, %0
+  %1 = load %0
+  %2 = div %1, 2
+  ret %2
+}
+
+fun @f() {
+}
+
 fun @main(): i32 {
 %entry:
-  @a = alloc i32
-  store 1, @a
-  @b = alloc i32
-  store 2, @b
-  jump %while_entry
-
-%while_entry:
-  %0 = load @a
-  %1 = lt %0, 10
-  br %1, %while_body, %while_end
-
-%while_body:
-  %2 = load @a
-  %3 = add %2, 1
-  store %3, @a
-  jump %while_entry_0
-
-%while_entry_0:
-  %4 = load @a
-  %5 = lt %4, 5
-  %6 = eq %5, 0
-  %7 = alloc i32
-  br %6, %then_block, %else
-
-%then_block:
-  store 0, %7
-  jump %ifend
-
-%else:
-  %8 = load @b
-  %9 = lt %8, 10
-  %10 = ne %9, 0
-  store %10, %7
-  jump %ifend
-
-%ifend:
-  %11 = load %7
-  br %11, %while_body_0, %while_end_0
-
-%while_body_0:
-  %12 = load @b
-  %13 = add %12, 1
-  store %13, @b
-  jump %while_entry_0
-
-%while_end_0:
-  jump %while_entry_1
-
-%while_entry_1:
-  %14 = load @b
-  %15 = lt %14, 20
-  br %15, %while_body_1, %while_end_1
-
-%while_body_1:
-  jump %while_entry_2
-
-%while_entry_2:
-  %16 = load @b
-  %17 = lt %16, 6
-  %18 = ne %17, 0
-  %19 = alloc i32
-  br %18, %then_block_0, %else_0
-
-%then_block_0:
-  store 1, %19
-  jump %ifend_0
-
-%else_0:
-  %20 = load @b
-  %21 = eq %20, 6
-  %22 = ne %21, 0
-  store %22, %19
-  jump %ifend_0
-
-%ifend_0:
-  %23 = load %19
-  br %23, %while_body_2, %while_end_2
-
-%while_body_2:
-  %24 = load @b
-  %25 = add %24, 1
-  store %25, @b
-  jump %while_entry_2
-
-%while_end_2:
-  %26 = load @b
-  %27 = add %26, 2
-  store %27, @b
-  jump %while_entry_1
-
-%while_end_1:
-  jump %while_entry
-
-%while_end:
-  %28 = load @a
-  %29 = load @b
-  %30 = add %28, %29
-  ret %30
+  call @f()
+  %3 = call @half(10)
+  ret %3
 }
