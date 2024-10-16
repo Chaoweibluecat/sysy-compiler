@@ -184,33 +184,38 @@ impl GenerateAsm for koopa::ir::values::Branch {
     type Out = ();
     fn generate(&self, file: &mut File, ctx: &mut Context) -> Result<Self::Out> {
         let value = self.cond().generate(file, ctx)?;
-        if let InsData::StackSlot(offset) = value {
-            writeln!(file, "  lw    t0, {}(sp)", offset);
-            let true_bb = self.true_bb();
-            let false_bb = self.false_bb();
-            let mut true_block_name = ctx
-                .cur_func()
-                .dfg()
-                .bb(true_bb)
-                .name()
-                .as_ref()
-                .unwrap()
-                .clone();
-            let true_label_name = ctx.register_label(true_bb, label_name(true_block_name));
-            writeln!(file, "  bnez {}, {}", "t0", true_label_name);
-
-            let mut false_block_name = ctx
-                .cur_func()
-                .dfg()
-                .bb(false_bb)
-                .name()
-                .as_ref()
-                .unwrap()
-                .clone();
-            let false_label_name = ctx.register_label(false_bb, label_name(false_block_name));
-
-            writeln!(file, "  j {}", false_label_name);
+        match value {
+            InsData::StackSlot(offset) => {
+                writeln!(file, "  lw    t0, {}(sp)", offset);
+            }
+            InsData::Int(inst_num) => {
+                writeln!(file, "  li    t0, {}", inst_num);
+            }
         }
+        let true_bb = self.true_bb();
+        let false_bb = self.false_bb();
+        let mut true_block_name = ctx
+            .cur_func()
+            .dfg()
+            .bb(true_bb)
+            .name()
+            .as_ref()
+            .unwrap()
+            .clone();
+        let true_label_name = ctx.register_label(true_bb, label_name(true_block_name));
+        writeln!(file, "  bnez {}, {}", "t0", true_label_name);
+
+        let mut false_block_name = ctx
+            .cur_func()
+            .dfg()
+            .bb(false_bb)
+            .name()
+            .as_ref()
+            .unwrap()
+            .clone();
+        let false_label_name = ctx.register_label(false_bb, label_name(false_block_name));
+        writeln!(file, "  j {}", false_label_name);
+
         Ok(())
     }
 }

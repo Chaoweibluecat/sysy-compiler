@@ -1,22 +1,19 @@
 fun @main(): i32 {
 %entry:
-  @a = alloc i32
-  store 0, @a
-  %0 = load @a
-  br %0, %then, %else
+  br 0, %then, %else
 
 %then:
   ret 1
 
+%0:
+  jump %ifend
+
 %else:
   ret 2
-
-%ifend:
-  ret 3
 
 %1:
   jump %ifend
 
-%2:
-  jump %ifend
+%ifend:
+  ret 3
 }

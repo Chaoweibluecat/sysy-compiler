@@ -5,7 +5,7 @@ use crate::{
 };
 use koopa::ir::{
     builder::{BasicBlockBuilder, LocalInstBuilder, ValueBuilder},
-    BinaryOp, FunctionData, Program, Type, Value,
+    BasicBlock, BinaryOp, FunctionData, Program, Type, Value,
 };
 pub trait GenerateProgram {
     type Out;
@@ -293,7 +293,7 @@ impl GenerateProgram for While {
         let while_entry = cur_func_mut(program, ctx)
             .dfg_mut()
             .new_bb()
-            .basic_block(Some("%while-entry".to_owned()));
+            .basic_block(Some("%while_entry".to_owned()));
         let while_body = cur_func_mut(program, ctx)
             .dfg_mut()
             .new_bb()
@@ -301,7 +301,7 @@ impl GenerateProgram for While {
         let while_end = cur_func_mut(program, ctx)
             .dfg_mut()
             .new_bb()
-            .basic_block(Some("%while-end".to_owned()));
+            .basic_block(Some("%while_end".to_owned()));
         cur_func_mut(program, ctx).layout_mut().bbs_mut().extend([
             while_entry,
             while_body,
@@ -367,10 +367,6 @@ impl GenerateProgram for IfStmt {
             .dfg_mut()
             .new_bb()
             .basic_block(Some("%ifend".into()));
-        cur_func_mut(program, ctx)
-            .layout_mut()
-            .bbs_mut()
-            .extend([then_block, else_block, end_block]);
         // 使用condition计算结果，增加branch指令
         let br_ins = cur_func_mut(program, ctx)
             .dfg_mut()
@@ -382,6 +378,10 @@ impl GenerateProgram for IfStmt {
             .insts_mut()
             .push_key_back(br_ins)
             .map_err(|_| Error::SysError)?;
+        cur_func_mut(program, ctx)
+            .layout_mut()
+            .bbs_mut()
+            .extend([then_block]);
 
         // 生产then_block的语句。主体stmt + jump end指令
         ctx.curr_block = Some(then_block);
@@ -399,6 +399,11 @@ impl GenerateProgram for IfStmt {
 
         // 生产else_block的语句。主体stmt + jump end指令
         ctx.curr_block = Some(else_block);
+        cur_func_mut(program, ctx)
+            .layout_mut()
+            .bbs_mut()
+            .extend([else_block]);
+
         self.else_stmt
             .as_ref()
             .map(|stmt| stmt.generate(program, ctx));
@@ -415,6 +420,10 @@ impl GenerateProgram for IfStmt {
 
         // 设置当前块为end_block,作为if结束后后续指令所在的块
         ctx.curr_block = Some(end_block);
+        cur_func_mut(program, ctx)
+            .layout_mut()
+            .bbs_mut()
+            .extend([end_block]);
         Ok(())
     }
 }
@@ -543,7 +552,7 @@ impl GenerateProgram for LAndExp {
                 cur_func_mut(program, ctx)
                     .layout_mut()
                     .bbs_mut()
-                    .extend([then_block, else_block, end_block]);
+                    .extend([then_block]);
 
                 ctx.curr_block = Some(then_block);
                 let inst_1 = cur_func_mut(program, ctx).dfg_mut().new_value().integer(0);
@@ -562,6 +571,11 @@ impl GenerateProgram for LAndExp {
                     .extend([store_res, then_jump]);
 
                 ctx.curr_block = Some(else_block);
+                cur_func_mut(program, ctx)
+                    .layout_mut()
+                    .bbs_mut()
+                    .extend([else_block]);
+
                 let right_value = right.generate(program, ctx)?;
                 let right_bool = register_binary(program, ctx, right_value, zero, BinaryOp::NotEq)?;
                 let store_res: Value = cur_func_mut(program, ctx)
@@ -579,6 +593,11 @@ impl GenerateProgram for LAndExp {
                     .extend([store_res, then_jump]);
 
                 ctx.curr_block = Some(end_block);
+                cur_func_mut(program, ctx)
+                    .layout_mut()
+                    .bbs_mut()
+                    .extend([end_block]);
+
                 let load = cur_func_mut(program, ctx).dfg_mut().new_value().load(res);
                 cur_func_mut(program, ctx)
                     .layout_mut()
@@ -627,7 +646,7 @@ impl GenerateProgram for LOrExp {
                 cur_func_mut(program, ctx)
                     .layout_mut()
                     .bbs_mut()
-                    .extend([then_block, else_block, end_block]);
+                    .extend([then_block]);
 
                 ctx.curr_block = Some(then_block);
                 let inst_1 = cur_func_mut(program, ctx).dfg_mut().new_value().integer(1);
@@ -646,6 +665,11 @@ impl GenerateProgram for LOrExp {
                     .extend([store_res, then_jump]);
 
                 ctx.curr_block = Some(else_block);
+                cur_func_mut(program, ctx)
+                    .layout_mut()
+                    .bbs_mut()
+                    .extend([else_block]);
+
                 let right_value = right.generate(program, ctx)?;
                 let right_bool = register_binary(program, ctx, right_value, zero, BinaryOp::NotEq)?;
                 let store_res: Value = cur_func_mut(program, ctx)
@@ -666,9 +690,15 @@ impl GenerateProgram for LOrExp {
                 let load = cur_func_mut(program, ctx).dfg_mut().new_value().load(res);
                 cur_func_mut(program, ctx)
                     .layout_mut()
+                    .bbs_mut()
+                    .extend([end_block]);
+
+                cur_func_mut(program, ctx)
+                    .layout_mut()
                     .bb_mut(end_block)
                     .insts_mut()
                     .push_key_back(load);
+
                 Ok(load)
             }
         }
@@ -788,13 +818,17 @@ fn remove_useless_block<'a, 'b>(program: &'a mut Program, ctx: &'b mut Context) 
 }
 
 fn next_bb(program: &mut Program, ctx: &mut Context) {
-    let new_bb = cur_func_mut(program, ctx)
+    let new_bb: koopa::ir::BasicBlock = cur_func_mut(program, ctx)
         .dfg_mut()
         .new_bb()
         .basic_block(None);
+    push_block(program, ctx, new_bb);
+}
+
+fn push_block(program: &mut Program, ctx: &mut Context, bb: BasicBlock) {
     cur_func_mut(program, ctx)
         .layout_mut()
         .bbs_mut()
-        .push_key_back(new_bb);
-    ctx.curr_block = Some(new_bb);
+        .push_key_back(bb);
+    ctx.curr_block = Some(bb);
 }
