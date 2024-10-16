@@ -1,12 +1,11 @@
-use super::{ eval::Eval, ASTValue, Error };
-use crate::{ ast::*, irgen::{ Context, Result } };
+use super::{eval::Eval, ASTValue, Error};
+use crate::{
+    ast::*,
+    irgen::{Context, Result},
+};
 use koopa::ir::{
-    builder::{ BasicBlockBuilder, LocalInstBuilder, ValueBuilder },
-    BinaryOp,
-    FunctionData,
-    Program,
-    Type,
-    Value,
+    builder::{BasicBlockBuilder, LocalInstBuilder, ValueBuilder},
+    BinaryOp, FunctionData, Program, Type, Value,
 };
 pub trait GenerateProgram {
     type Out;
@@ -27,18 +26,18 @@ impl GenerateProgram for FuncDef {
     type Out = ();
 
     fn generate(&self, program: &mut Program, ctx: &mut Context) -> Result<Self::Out> {
-        let main_handle = program.new_func(
-            FunctionData::with_param_names(
-                format!("@{}", self.ident).into(),
-                vec![],
-                Type::get_i32()
-            )
-        );
+        let main_handle = program.new_func(FunctionData::with_param_names(
+            format!("@{}", self.ident).into(),
+            vec![],
+            Type::get_i32(),
+        ));
         let main = program.func_mut(main_handle);
         ctx.curr_fuc = Some(main_handle);
-        let entry1 = main.dfg_mut().new_bb().basic_block(Some("%entry".to_string()));
-        main
-            .layout_mut()
+        let entry1 = main
+            .dfg_mut()
+            .new_bb()
+            .basic_block(Some("%entry".to_string()));
+        main.layout_mut()
             .bbs_mut()
             .push_key_back(entry1)
             .map_err(|_| Error::SysError)?;
@@ -113,7 +112,9 @@ impl GenerateProgram for VarDef {
                     None => {
                         let func_data = program.func_mut(ctx.curr_fuc.unwrap());
                         let alloc = func_data.dfg_mut().new_value().alloc(Type::get_i32());
-                        func_data.dfg_mut().set_value_name(alloc, Some(format!("@{}", id)));
+                        func_data
+                            .dfg_mut()
+                            .set_value_name(alloc, Some(format!("@{}", id)));
                         func_data
                             .layout_mut()
                             .bb_mut(ctx.curr_block.unwrap())
@@ -133,7 +134,9 @@ impl GenerateProgram for VarDef {
                         let exp_val = init_val.generate(program, ctx)?;
                         let func_data = program.func_mut(ctx.curr_fuc.unwrap());
                         let alloc = func_data.dfg_mut().new_value().alloc(Type::get_i32());
-                        func_data.dfg_mut().set_value_name(alloc, Some(format!("@{}", id)));
+                        func_data
+                            .dfg_mut()
+                            .set_value_name(alloc, Some(format!("@{}", id)));
                         let store_ins = func_data.dfg_mut().new_value().store(exp_val, alloc);
                         func_data
                             .layout_mut()
@@ -199,7 +202,10 @@ impl GenerateProgram for Stmt {
                 // todo 优化: 基本块的出口是唯一的,
                 // 翻译完return后可以在ctx中关闭基本块, 这样一些递归后序操作（比如if-else的尾部跳转指令）就不用加进去
                 let res_val = exp.generate(program, ctx)?;
-                let ret = cur_func_mut(program, ctx).dfg_mut().new_value().ret(Some(res_val));
+                let ret = cur_func_mut(program, ctx)
+                    .dfg_mut()
+                    .new_value()
+                    .ret(Some(res_val));
                 cur_func_mut(program, ctx)
                     .layout_mut()
                     .bb_mut(ctx.curr_block.unwrap())
@@ -296,10 +302,11 @@ impl GenerateProgram for While {
             .dfg_mut()
             .new_bb()
             .basic_block(Some("%while-end".to_owned()));
-        cur_func_mut(program, ctx)
-            .layout_mut()
-            .bbs_mut()
-            .extend([while_entry, while_body, while_end]);
+        cur_func_mut(program, ctx).layout_mut().bbs_mut().extend([
+            while_entry,
+            while_body,
+            while_end,
+        ]);
 
         // begin entry jump
         let begin_while_entry_jump = cur_func_mut(program, ctx)
@@ -379,7 +386,10 @@ impl GenerateProgram for IfStmt {
         // 生产then_block的语句。主体stmt + jump end指令
         ctx.curr_block = Some(then_block);
         self.then.generate(program, ctx)?;
-        let then_jump = cur_func_mut(program, ctx).dfg_mut().new_value().jump(end_block);
+        let then_jump = cur_func_mut(program, ctx)
+            .dfg_mut()
+            .new_value()
+            .jump(end_block);
         cur_func_mut(program, ctx)
             .layout_mut()
             .bb_mut(ctx.curr_block.unwrap())
@@ -389,8 +399,13 @@ impl GenerateProgram for IfStmt {
 
         // 生产else_block的语句。主体stmt + jump end指令
         ctx.curr_block = Some(else_block);
-        self.else_stmt.as_ref().map(|stmt| stmt.generate(program, ctx));
-        let else_jump = cur_func_mut(program, ctx).dfg_mut().new_value().jump(end_block);
+        self.else_stmt
+            .as_ref()
+            .map(|stmt| stmt.generate(program, ctx));
+        let else_jump = cur_func_mut(program, ctx)
+            .dfg_mut()
+            .new_value()
+            .jump(end_block);
         cur_func_mut(program, ctx)
             .layout_mut()
             .bb_mut(ctx.curr_block.unwrap())
@@ -536,7 +551,10 @@ impl GenerateProgram for LAndExp {
                     .dfg_mut()
                     .new_value()
                     .store(inst_1, res);
-                let then_jump = cur_func_mut(program, ctx).dfg_mut().new_value().jump(end_block);
+                let then_jump = cur_func_mut(program, ctx)
+                    .dfg_mut()
+                    .new_value()
+                    .jump(end_block);
                 cur_func_mut(program, ctx)
                     .layout_mut()
                     .bb_mut(then_block)
@@ -550,7 +568,10 @@ impl GenerateProgram for LAndExp {
                     .dfg_mut()
                     .new_value()
                     .store(right_bool, res);
-                let then_jump = cur_func_mut(program, ctx).dfg_mut().new_value().jump(end_block);
+                let then_jump = cur_func_mut(program, ctx)
+                    .dfg_mut()
+                    .new_value()
+                    .jump(end_block);
                 cur_func_mut(program, ctx)
                     .layout_mut()
                     .bb_mut(ctx.curr_block.unwrap())
@@ -614,7 +635,10 @@ impl GenerateProgram for LOrExp {
                     .dfg_mut()
                     .new_value()
                     .store(inst_1, res);
-                let then_jump = cur_func_mut(program, ctx).dfg_mut().new_value().jump(end_block);
+                let then_jump = cur_func_mut(program, ctx)
+                    .dfg_mut()
+                    .new_value()
+                    .jump(end_block);
                 cur_func_mut(program, ctx)
                     .layout_mut()
                     .bb_mut(ctx.curr_block.unwrap())
@@ -628,7 +652,10 @@ impl GenerateProgram for LOrExp {
                     .dfg_mut()
                     .new_value()
                     .store(right_bool, res);
-                let then_jump = cur_func_mut(program, ctx).dfg_mut().new_value().jump(end_block);
+                let then_jump = cur_func_mut(program, ctx)
+                    .dfg_mut()
+                    .new_value()
+                    .jump(end_block);
                 cur_func_mut(program, ctx)
                     .layout_mut()
                     .bb_mut(ctx.curr_block.unwrap())
@@ -653,45 +680,42 @@ impl GenerateProgram for UnaryExp {
 
     fn generate(&self, program: &mut Program, ctx: &mut Context) -> Result<Self::Out> {
         match self {
-            UnaryExp::PrimaryExp(prim_exp) =>
-                match prim_exp {
-                    PrimaryExp::Number(num) => {
-                        // num作为primary_exp,是一个dfg中的value,但不对应指令
-                        let func_data = program.func_mut(ctx.curr_fuc.unwrap());
-                        let val = func_data.dfg_mut().new_value().integer(*num);
-                        Ok(val)
-                    }
-                    PrimaryExp::Exp(exp) => exp.generate(program, ctx),
-                    PrimaryExp::LVal(lval) => {
-                        // lval作为表达式（即出现在等号右边时),此时需要求值
-                        // 1. name => 内存位置 (查env//符号表)
-                        // 2. 内存位置 => 内存值 (koopa中的load, 读出val作为指针实际指向的栈值，作为表达式的返回)
-                        let value: Option<&ASTValue> = ctx.look_up_symbol(&lval.id);
-                        match value {
-                            None => Err(super::Error::UnknownSymbol),
-                            Some(ASTValue::Const(val)) => {
-                                // 表达式中的左值,如果是常量,直接取解析结果
-                                let func_data: &mut FunctionData = program.func_mut(
-                                    ctx.curr_fuc.unwrap()
-                                );
-                                Ok(func_data.dfg_mut().new_value().integer(*val))
-                            }
-                            Some(ASTValue::Variable(lval)) => {
-                                let func_data: &mut FunctionData = program.func_mut(
-                                    ctx.curr_fuc.unwrap()
-                                );
-                                let load = func_data.dfg_mut().new_value().load(*lval);
-                                func_data
-                                    .layout_mut()
-                                    .bb_mut(ctx.curr_block.unwrap())
-                                    .insts_mut()
-                                    .push_key_back(load)
-                                    .map_err(|_| Error::SysError)?;
-                                Ok(load)
-                            }
+            UnaryExp::PrimaryExp(prim_exp) => match prim_exp {
+                PrimaryExp::Number(num) => {
+                    // num作为primary_exp,是一个dfg中的value,但不对应指令
+                    let func_data = program.func_mut(ctx.curr_fuc.unwrap());
+                    let val = func_data.dfg_mut().new_value().integer(*num);
+                    Ok(val)
+                }
+                PrimaryExp::Exp(exp) => exp.generate(program, ctx),
+                PrimaryExp::LVal(lval) => {
+                    // lval作为表达式（即出现在等号右边时),此时需要求值
+                    // 1. name => 内存位置 (查env//符号表)
+                    // 2. 内存位置 => 内存值 (koopa中的load, 读出val作为指针实际指向的栈值，作为表达式的返回)
+                    let value: Option<&ASTValue> = ctx.look_up_symbol(&lval.id);
+                    match value {
+                        None => Err(super::Error::UnknownSymbol),
+                        Some(ASTValue::Const(val)) => {
+                            // 表达式中的左值,如果是常量,直接取解析结果
+                            let func_data: &mut FunctionData =
+                                program.func_mut(ctx.curr_fuc.unwrap());
+                            Ok(func_data.dfg_mut().new_value().integer(*val))
+                        }
+                        Some(ASTValue::Variable(lval)) => {
+                            let func_data: &mut FunctionData =
+                                program.func_mut(ctx.curr_fuc.unwrap());
+                            let load = func_data.dfg_mut().new_value().load(*lval);
+                            func_data
+                                .layout_mut()
+                                .bb_mut(ctx.curr_block.unwrap())
+                                .insts_mut()
+                                .push_key_back(load)
+                                .map_err(|_| Error::SysError)?;
+                            Ok(load)
                         }
                     }
                 }
+            },
             UnaryExp::UnaryExp(op, rexp) => {
                 let rhs = rexp.generate(program, ctx)?;
                 match op {
@@ -717,6 +741,7 @@ impl GenerateProgram for UnaryExp {
                     }
                 }
             }
+            _ => unimplemented!(),
         }
     }
 }
@@ -726,9 +751,12 @@ fn register_binary(
     ctx: &mut Context,
     left: Value,
     right: Value,
-    op: BinaryOp
+    op: BinaryOp,
 ) -> Result<Value> {
-    let res = cur_func_mut(program, ctx).dfg_mut().new_value().binary(op, left, right);
+    let res = cur_func_mut(program, ctx)
+        .dfg_mut()
+        .new_value()
+        .binary(op, left, right);
     cur_func_mut(program, ctx)
         .layout_mut()
         .bb_mut(ctx.curr_block.unwrap())
@@ -760,7 +788,13 @@ fn remove_useless_block<'a, 'b>(program: &'a mut Program, ctx: &'b mut Context) 
 }
 
 fn next_bb(program: &mut Program, ctx: &mut Context) {
-    let new_bb = cur_func_mut(program, ctx).dfg_mut().new_bb().basic_block(None);
-    cur_func_mut(program, ctx).layout_mut().bbs_mut().push_key_back(new_bb);
+    let new_bb = cur_func_mut(program, ctx)
+        .dfg_mut()
+        .new_bb()
+        .basic_block(None);
+    cur_func_mut(program, ctx)
+        .layout_mut()
+        .bbs_mut()
+        .push_key_back(new_bb);
     ctx.curr_block = Some(new_bb);
 }

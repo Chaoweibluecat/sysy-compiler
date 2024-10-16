@@ -12,6 +12,7 @@ pub struct Context<'a> {
     cur_fuc_stack_allocation: Option<i32>,
     cur_value: Option<Value>,
     basic_block_to_label_name: HashMap<BasicBlock, String>,
+    label_counter: i32,
 }
 
 pub enum InsData {
@@ -29,6 +30,7 @@ pub fn generate_asm(program: &Program, path: &str) -> Result<()> {
             cur_fuc_stack_allocation: None,
             cur_value: None,
             basic_block_to_label_name: HashMap::new(),
+            label_counter: 0,
         }),
     )
 }

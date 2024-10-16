@@ -33,11 +33,17 @@ fn main() -> Result<()> {
     let prog = generate_program(&comp_unit).unwrap();
 
     if mode.as_str() == "-koopa" {
-        KoopaGenerator::from_path(output).unwrap().generate_on(&prog).unwrap();
+        KoopaGenerator::from_path(output)
+            .unwrap()
+            .generate_on(&prog)
+            .unwrap();
     } else if mode.as_str() == "-riscv" {
         generate_asm(&prog, &output).expect("failed to generate asm");
     } else {
-        KoopaGenerator::from_path(output).unwrap().generate_on(&prog).unwrap();
+        KoopaGenerator::from_path(output)
+            .unwrap()
+            .generate_on(&prog)
+            .unwrap();
         generate_asm(&prog, &output_2).expect("failed to generate asm");
     }
 

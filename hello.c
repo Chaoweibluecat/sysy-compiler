@@ -1,5 +1,9 @@
 int main()
 {
-  int a = 1 || 2 && 3;
-  return a;
+  int a = 0;
+  if (a)
+    return 1;
+  else
+    return 2;
+  return 3;
 }
