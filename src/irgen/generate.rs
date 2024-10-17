@@ -57,8 +57,6 @@ impl GenerateProgram for FuncDef {
             )
         );
         ctx.curr_fuc = Some(func);
-
-        cur_func_mut(program, ctx).params();
         ctx.scopes.register_function(&self.ident, func);
         let main = program.func_mut(func);
         let entry1 = main.dfg_mut().new_bb().basic_block(Some("%entry".to_string()));
@@ -72,6 +70,13 @@ impl GenerateProgram for FuncDef {
             ctx.insert_symbol(&self.params[i].name, ASTValue::Variable(alloc));
         }
         self.block.generate(program, ctx)?;
+
+        // 为void类型末尾补充ret指令, 不用怕重复ret,因为ret翻译后会新开一个块;
+        // 所以这里最大的副作用也就是多了一个不可达块
+        if let FuncType::Void = self.func_type {
+            let ret = cur_func_mut(program, ctx).dfg_mut().new_value().ret(None);
+            push_back_value_as_ins(program, ctx, ret)?;
+        }
         remove_useless_block(program, ctx);
         ctx.leave_scope();
 

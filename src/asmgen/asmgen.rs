@@ -1,6 +1,7 @@
+use std::env::Args;
 use std::{ fs::File, io::Write };
 
-use super::InsData;
+use super::{ FunctionInfo, InsData };
 use crate::asmgen::Context;
 use crate::irgen::{ Error, Result };
 use koopa::ir::entities::ValueData;
@@ -15,13 +16,14 @@ impl GenerateAsm for koopa::ir::Program {
     type Out = ();
 
     fn generate(&self, file: &mut File, ctx: &mut Context) -> Result<Self::Out> {
-        writeln!(file, "  .text");
         for &func in self.func_layout() {
+            writeln!(file, "  .text");
             let func_data: &koopa::ir::FunctionData = self.func(func);
             let name = func_data.name()[1..].to_string();
             writeln!(file, "  .global {}", name);
             ctx.func = Some(func);
             func_data.generate(file, ctx)?;
+            writeln!(file);
         }
         Ok(())
     }
@@ -33,7 +35,15 @@ impl GenerateAsm for koopa::ir::FunctionData {
         let name = self.name()[1..].to_string();
         writeln!(file, "{}:", name);
         ctx.alloc_on_stack(self);
-        writeln!(file, "  addi  sp, sp, -{}", ctx.cur_fuc_stack_allocation.unwrap());
+        writeln!(file, "  addi  sp, sp, -{}", ctx.cur_func_info.as_ref().unwrap().stack_allocation);
+
+        if !ctx.cur_func_info.as_ref().unwrap().is_leaf_func {
+            writeln!(
+                file,
+                "    sw  ra, {}(sp)",
+                ctx.cur_func_info.as_ref().unwrap().stack_allocation - 4
+            );
+        }
         for (bb, node) in self.layout().bbs() {
             if let Some(name) = ctx.look_up_label(*bb) {
                 writeln!(file, "{}:", name);
@@ -48,6 +58,7 @@ impl GenerateAsm for koopa::ir::FunctionData {
                 value_data.generate(file, ctx)?;
             }
         }
+
         Ok(())
     }
 }
@@ -78,10 +89,23 @@ impl GenerateAsm for koopa::ir::entities::ValueData {
                         InsData::StackSlot(offset) => {
                             writeln!(file, "  lw    a0, {}(sp)", offset);
                         }
+                        _ => unimplemented!(),
                     }
                 }
+                if !ctx.cur_func_info.as_ref().unwrap().is_leaf_func {
+                    writeln!(
+                        file,
+                        "    lw  ra, {}(sp)",
+                        ctx.cur_func_info.as_ref().unwrap().stack_allocation - 4
+                    );
+                }
                 // write epilogue at ext point
-                writeln!(file, "  addi  sp, sp,  {}", ctx.cur_fuc_stack_allocation.unwrap());
+                writeln!(
+                    file,
+                    "  addi  sp, sp,  {}",
+                    ctx.cur_func_info.as_ref().unwrap().stack_allocation
+                );
+
                 writeln!(file, "  ret");
                 Ok(())
             }
@@ -106,6 +130,7 @@ impl GenerateAsm for koopa::ir::entities::ValueData {
                         writeln!(file, "  lw    t0, {}(sp)", offset);
                         "t0".into()
                     }
+                    InsData::Reg(reg) => { reg }
                 };
 
                 if let InsData::StackSlot(offset) = store.dest().generate(file, ctx)? {
@@ -149,6 +174,7 @@ impl GenerateAsm for koopa::ir::entities::ValueData {
                         writeln!(file, "  lw    t0, {}(sp)", offset);
                         "t0".into()
                     }
+                    _ => unimplemented!(),
                 };
 
                 let right_reg = match right {
@@ -160,6 +186,8 @@ impl GenerateAsm for koopa::ir::entities::ValueData {
                         writeln!(file, "  lw    t1, {}(sp)", offset);
                         "t1".into()
                     }
+
+                    _ => unimplemented!(),
                 };
                 let result = "t0".into();
                 generate_op_asm(file, binary.op(), &left_reg, &right_reg, &result);
@@ -168,6 +196,42 @@ impl GenerateAsm for koopa::ir::entities::ValueData {
                 }
                 Ok(())
             }
+
+            ValueKind::Call(func_call) => {
+                for i in 0..func_call.args().len() {
+                    if i < 8 {
+                        let dst = format!("a{}", i).to_owned();
+                        match func_call.args()[i].generate(file, ctx)? {
+                            InsData::Int(int) => {
+                                writeln!(file, "  li    {},  {}", dst, int);
+                            }
+                            InsData::StackSlot(offset) => {
+                                writeln!(file, "  lw    {}, {}(sp)", dst, offset);
+                            }
+                            _ => unimplemented!(),
+                        };
+                    } else {
+                        let dst = (i - 8) * 4;
+                        match func_call.args()[i].generate(file, ctx)? {
+                            InsData::Int(int) => {
+                                writeln!(file, "  li    t0,  {}", int);
+                                writeln!(file, "  sw    t0,  {}(sp)", dst);
+                            }
+                            InsData::StackSlot(offset) => {
+                                writeln!(file, "  lw    t0, {}(sp)", offset);
+                                writeln!(file, "  sw    t0, {}(sp)", dst);
+                            }
+                            _ => unimplemented!(),
+                        };
+                    }
+                }
+                writeln!(file, "  call  {}", ctx.prog.func(func_call.callee()).name());
+                if let Ok(offset) = ctx.find_value_stack_offset(ctx.cur_value.unwrap()) {
+                    writeln!(file, "  sw    a0, {}(sp)", offset);
+                }
+                Ok(())
+            }
+
             // 其他种类暂时遇不到
             _ => unreachable!(),
         }
@@ -185,6 +249,7 @@ impl GenerateAsm for koopa::ir::values::Branch {
             InsData::Int(inst_num) => {
                 writeln!(file, "  li    t0, {}", inst_num);
             }
+            _ => unimplemented!(),
         }
         let true_bb = self.true_bb();
         let false_bb = self.false_bb();
@@ -232,6 +297,13 @@ impl GenerateAsm for koopa::ir::Value {
         let value_data = func_data.dfg().value(*self);
         match value_data.kind() {
             ValueKind::Integer(v) => Ok(InsData::Int(v.value())),
+            ValueKind::FuncArgRef(func_arg) => {
+                if func_arg.index() < 8 {
+                    Ok(InsData::Reg(format!("a{}", func_arg.index()).to_owned()))
+                } else {
+                    Ok(InsData::StackSlot(4 * ((func_arg.index() - 8) as i32)))
+                }
+            }
             _ => Ok(InsData::StackSlot(ctx.find_value_stack_offset(*self)?)),
         }
     }
@@ -300,11 +372,32 @@ impl<'a> Context<'a> {
     // 扫描函数的所有指令,按需在栈上分配内存
     fn alloc_on_stack(&mut self, func_data: &FunctionData) {
         let mut offset = 0;
+        let mut is_leaf_func = true;
+        let mut longest_call_func_args = 0;
+
+        // 处理call参数超过8个时自己的栈帧
+        for (_, bbd) in func_data.layout().bbs().iter() {
+            for (&val, _) in bbd.insts() {
+                let value_data = func_data.dfg().value(val);
+                if let ValueKind::Call(call) = value_data.kind() {
+                    longest_call_func_args = if call.args().len() > longest_call_func_args {
+                        call.args().len()
+                    } else {
+                        longest_call_func_args
+                    };
+                    is_leaf_func = false;
+                }
+            }
+        }
+        if longest_call_func_args > 8 {
+            offset = offset + 4 * (longest_call_func_args - 8);
+        }
+
         for (_, bbd) in func_data.layout().bbs().iter() {
             for (&val, _) in bbd.insts() {
                 // 本条指令需要分配内存,则为返回值
                 if self.need_alloc(func_data.dfg().value(val)) {
-                    self.value_2_stack_offset.insert(val, offset);
+                    self.value_2_stack_offset.insert(val, offset as i32);
                     println!("alloc value {:#?} at {}", val, offset);
                     offset += 4;
                 } else {
@@ -312,7 +405,13 @@ impl<'a> Context<'a> {
                 }
             }
         }
-        self.cur_fuc_stack_allocation = Some((((offset as f32) / 16.0).ceil() * 16.0) as i32);
+        // alloc ra
+        if !is_leaf_func {
+            offset = offset + 4;
+        }
+        let stack_allocation = (((offset as f32) / 16.0).ceil() * 16.0) as i32;
+        let info = FunctionInfo { stack_allocation, is_leaf_func };
+        self.cur_func_info = Some(info);
     }
 
     // todo 记一下
