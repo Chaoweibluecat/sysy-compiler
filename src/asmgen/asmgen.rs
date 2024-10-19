@@ -17,8 +17,14 @@ impl GenerateAsm for koopa::ir::Program {
 
     fn generate(&self, file: &mut File, ctx: &mut Context) -> Result<Self::Out> {
         for &func in self.func_layout() {
-            writeln!(file, "  .text");
             let func_data: &koopa::ir::FunctionData = self.func(func);
+            // 函数声明内部没有block,不需要翻译为机器码,skip;
+            // Koopa IR 的函数声明和普通函数的区别是: 函数声明的基本块列表是空的
+            if let None = func_data.layout().entry_bb() {
+                continue;
+            }
+            writeln!(file, "  .text");
+
             let name = func_data.name()[1..].to_string();
             writeln!(file, "  .global {}", name);
             ctx.func = Some(func);

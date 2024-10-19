@@ -13,7 +13,13 @@ match {
   _
 }
 
-pub CompUnit: CompUnit = <func_defs: (FuncDef)*> => CompUnit { <> };
+pub CompUnit: CompUnit = <items: (GlobalItem)*> => CompUnit { <> };
+
+GlobalItem: GlobalItem = {
+    FuncDef => GlobalItem::FuncDef(<>),
+    Decl => GlobalItem::Decl(<>),
+}
+
 
 FuncDef: FuncDef = {
   <func_type: FuncType> <ident: Ident> "(" <params: (FuncFParams)?>")" <block: Block> => {

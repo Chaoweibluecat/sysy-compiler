@@ -1,20 +1,21 @@
-fun @half(@x: i32): i32 {
-%entry:
-  %0 = alloc i32
-  store @x, %0
-  %1 = load %0
-  %2 = div %1, 2
-  ret %2
-}
+decl @getint(): i32
 
-fun @f() {
-%entry:
-  ret
-}
+decl @getch(): i32
+
+decl @getarray(*i32): i32
+
+decl @putint(i32)
+
+decl @putch(i32)
+
+decl @putarray(*i32, i32)
+
+decl @starttime()
+
+decl @stoptime()
 
 fun @main(): i32 {
 %entry:
-  call @f()
-  %3 = call @half(10)
-  ret %3
+  %0 = call @getint()
+  ret %0
 }

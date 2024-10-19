@@ -1,15 +1,18 @@
 use super::{ eval::Eval, ASTValue, Error };
 use crate::{ ast::*, irgen::{ Context, Result } };
-use koopa::ir::{
-    builder::{ BasicBlockBuilder, LocalInstBuilder, ValueBuilder },
-    layout::BasicBlockNode,
-    BasicBlock,
-    BinaryOp,
-    FunctionData,
-    Program,
-    Type,
-    TypeKind,
-    Value,
+use koopa::{
+    front::ast::FunDecl,
+    ir::{
+        builder::{ BasicBlockBuilder, LocalInstBuilder, ValueBuilder },
+        layout::BasicBlockNode,
+        BasicBlock,
+        BinaryOp,
+        FunctionData,
+        Program,
+        Type,
+        TypeKind,
+        Value,
+    },
 };
 pub trait GenerateProgram {
     type Out;
@@ -21,10 +24,53 @@ impl GenerateProgram for CompUnit {
     type Out = ();
 
     fn generate(&self, program: &mut Program, ctx: &mut Context) -> Result<Self::Out> {
-        for func_def in &self.func_defs {
-            func_def.generate(program, ctx)?;
+        add_sysy_lib_func(program, ctx);
+        for item in &self.items {
+            item.generate(program, ctx)?;
         }
         Ok(())
+    }
+}
+
+impl GenerateProgram for GlobalItem {
+    type Out = ();
+
+    fn generate(&self, program: &mut Program, ctx: &mut Context) -> Result<Self::Out> {
+        match self {
+            GlobalItem::FuncDef(func_def) => func_def.generate(program, ctx),
+            _ => unimplemented!(),
+        }
+    }
+}
+
+// 为koopaIr注册sysy的库函数定义;同时在上下文中注册库函数name->func的映射,使得后文funcall能找到对应func句柄
+fn add_sysy_lib_func(program: &mut Program, ctx: &mut Context) {
+    let dec1 = FunctionData::new_decl("@getint".to_owned(), vec![], Type::get_i32());
+    let dec2 = FunctionData::new_decl("@getch".to_owned(), vec![], Type::get_i32());
+    let dec3 = FunctionData::new_decl(
+        "@getarray".to_owned(),
+        vec![Type::get_pointer(Type::get_i32())],
+        Type::get_i32()
+    );
+    let dec4 = FunctionData::new_decl(
+        "@putint".to_owned(),
+        vec![Type::get_i32()],
+        Type::get_unit()
+    );
+    let dec5 = FunctionData::new_decl("@putch".to_owned(), vec![Type::get_i32()], Type::get_unit());
+    let dec6 = FunctionData::new_decl(
+        "@putarray".to_owned(),
+        vec![Type::get_pointer(Type::get_i32()), Type::get_i32()],
+        Type::get_unit()
+    );
+    let dec7 = FunctionData::new_decl("@starttime".to_owned(), vec![], Type::get_unit());
+
+    let dec8 = FunctionData::new_decl("@stoptime".to_owned(), vec![], Type::get_unit());
+    let dec_list = vec![dec1, dec2, dec3, dec4, dec5, dec6, dec7, dec8];
+    for dec in dec_list {
+        let name = &dec.name()[1..].to_string();
+        let func = program.new_func(dec);
+        ctx.scopes.register_function(name, func);
     }
 }
 
@@ -71,8 +117,7 @@ impl GenerateProgram for FuncDef {
         }
         self.block.generate(program, ctx)?;
 
-        // 为void类型末尾补充ret指令, 不用怕重复ret,因为ret翻译后会新开一个块;
-        // 所以这里最大的副作用也就是多了一个不可达块
+        // 为void类型末尾补充ret指令, sysy的标准ret后必须跟exp;所以void函数都不会以ret结尾
         if let FuncType::Void = self.func_type {
             let ret = cur_func_mut(program, ctx).dfg_mut().new_value().ret(None);
             push_back_value_as_ins(program, ctx, ret)?;

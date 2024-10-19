@@ -1,12 +1,17 @@
 #[derive(Debug)]
 pub struct CompUnit {
-    pub func_defs: Vec<FuncDef>,
+    pub items: Vec<GlobalItem>,
 }
 
 #[derive(Debug)]
 pub enum FuncType {
     Int,
     Void,
+}
+#[derive(Debug)]
+pub enum GlobalItem {
+    FuncDef(FuncDef),
+    Decl(Decl),
 }
 #[derive(Debug)]
 pub enum Exp {
