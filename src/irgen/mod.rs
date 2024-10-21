@@ -24,6 +24,7 @@ pub struct Context {
     pub curr_block: Option<BasicBlock>,
     pub scopes: Scopes,
     pub break_continue_dst: LinkedList<(BasicBlock, BasicBlock)>,
+    // Vardecl生成时,通过上下文判断是否在全局scope
 }
 
 pub struct Scopes {
@@ -103,15 +104,16 @@ impl Context {
         }
     }
 
-    pub fn insert_global_symbol(&mut self, name: &String, value: ASTValue) {
-        self.scopes.insert_global_symbol(name, value);
+    pub fn in_global_scope(&self) -> bool {
+        matches!(self.curr_fuc, None)
     }
 
-    pub fn look_up_global_symbol(&mut self, name: &String) -> Option<&ASTValue> {
-        self.scopes.look_up_global_symbol(name)
-    }
     pub fn insert_symbol(&mut self, name: &String, value: ASTValue) {
-        self.scopes.insert_symbol(name, value);
+        if self.in_global_scope() {
+            self.scopes.insert_global_symbol(name, value);
+        } else {
+            self.scopes.insert_symbol(name, value);
+        }
     }
 
     pub fn push_break_and_continue_dst(&mut self, break_dst: BasicBlock, cont_dst: BasicBlock) {

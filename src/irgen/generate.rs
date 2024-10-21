@@ -3,7 +3,7 @@ use crate::{ ast::*, irgen::{ Context, Result } };
 use koopa::{
     front::ast::FunDecl,
     ir::{
-        builder::{ BasicBlockBuilder, LocalInstBuilder, ValueBuilder },
+        builder::{ BasicBlockBuilder, GlobalInstBuilder, LocalInstBuilder, ValueBuilder },
         layout::BasicBlockNode,
         BasicBlock,
         BinaryOp,
@@ -38,7 +38,7 @@ impl GenerateProgram for GlobalItem {
     fn generate(&self, program: &mut Program, ctx: &mut Context) -> Result<Self::Out> {
         match self {
             GlobalItem::FuncDef(func_def) => func_def.generate(program, ctx),
-            _ => unimplemented!(),
+            GlobalItem::Decl(decl) => decl.generate(program, ctx),
         }
     }
 }
@@ -124,7 +124,7 @@ impl GenerateProgram for FuncDef {
         }
         remove_useless_block(program, ctx);
         ctx.leave_scope();
-
+        ctx.curr_fuc = None;
         Ok(())
     }
 }
@@ -190,10 +190,16 @@ impl GenerateProgram for VarDef {
                 match prev_def {
                     Some(_) => Err(Error::DuplicateDecl),
                     None => {
-                        let func_data = program.func_mut(ctx.curr_fuc.unwrap());
-                        let alloc = func_data.dfg_mut().new_value().alloc(Type::get_i32());
-                        func_data.dfg_mut().set_value_name(alloc, Some(format!("@{}", id)));
-                        push_back_value_as_ins(program, ctx, alloc)?;
+                        if ctx.in_global_scope() {
+                            let init = program.new_value().zero_init(Type::get_i32());
+                            let alloc = program.new_value().global_alloc(init);
+                            program.set_value_name(alloc, Some(format!("@{}", id)));
+                        } else {
+                            let func_data = program.func_mut(ctx.curr_fuc.unwrap());
+                            let alloc = func_data.dfg_mut().new_value().alloc(Type::get_i32());
+                            func_data.dfg_mut().set_value_name(alloc, Some(format!("@{}", id)));
+                            push_back_value_as_ins(program, ctx, alloc)?;
+                        }
                         ctx.insert_symbol(&id, ASTValue::Variable(alloc));
                         Ok(())
                     }

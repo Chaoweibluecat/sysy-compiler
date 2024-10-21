@@ -85,9 +85,9 @@ Decl: Decl = {
 }
 
 VarDecl: VarDecl = {
-  <b_type: BType> <def_1: VarDef> <mut def_list: ("," <VarDef>)*> ";" => {
+  "int" <def_1: VarDef> <mut def_list: ("," <VarDef>)*> ";" => {
     def_list.insert(0, def_1);
-    VarDecl{b_type, def_list}
+    VarDecl{BType::Int, def_list}
   }
 }
 
@@ -99,9 +99,9 @@ VarDef: VarDef = {
 InitVal: InitVal = <exp: Exp> => InitVal{exp};
 
 ConstDecl: ConstDecl = {
-  "const" <b_type: BType> <def_1: ConstDef> <mut def_list: ("," <ConstDef>)*> ";"  => {
+  "const" "int" <def_1: ConstDef> <mut def_list: ("," <ConstDef>)*> ";"  => {
     def_list.insert(0, def_1);
-    ConstDecl {b_type: b_type, def_list: def_list}
+    ConstDecl {b_type: BType::Int, def_list: def_list}
   }
 }
 

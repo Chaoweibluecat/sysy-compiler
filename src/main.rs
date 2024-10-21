@@ -15,7 +15,7 @@ lalrpop_mod!(sysy);
 
 fn main() -> Result<()> {
     let input = "hello.c";
-    let mode = "-123".to_owned();
+    let mode = "-koopa".to_owned();
     let output = "hello.koopa";
     let output_2 = "hello.asm";
 
