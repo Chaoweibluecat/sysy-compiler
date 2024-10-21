@@ -88,8 +88,19 @@ impl GenerateAsm for koopa::ir::entities::ValueData {
     fn generate(&self, file: &mut File, ctx: &mut Context) -> Result<Self::Out> {
         match self.kind() {
             ValueKind::GlobalAlloc(global_alloc) => {
-                let init = global_alloc.init();
-                let init = global_alloc.init();
+                let value = ctx.cur_value.unwrap();
+
+                // 这里假设 borrow_value 返回的是一个拥有足够生存期的数据
+                let borrowed_value = ctx.prog.borrow_value(value);
+
+                // 使用 as_ref() 来处理 Option 类型，并取出 String 的引用
+                if let Some(global_name) = borrowed_value.name().as_ref() {
+                    // 创建切片，如果 global_name 是有效的 String
+                    let slice: &str = &[1..];
+                    ctx.global_value_to_data_name.insert(value, slice);
+                }
+
+                Ok(())
             }
             ValueKind::Integer(_) => {
                 Ok(())
@@ -148,6 +159,7 @@ impl GenerateAsm for koopa::ir::entities::ValueData {
                         "t0".into()
                     }
                     InsData::Reg(reg) => { reg }
+                    _ => unimplemented!(),
                 };
 
                 if let InsData::StackSlot(offset) = store.dest().generate(file, ctx)? {
