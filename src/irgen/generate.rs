@@ -43,37 +43,6 @@ impl GenerateProgram for GlobalItem {
     }
 }
 
-// 为koopaIr注册sysy的库函数定义;同时在上下文中注册库函数name->func的映射,使得后文funcall能找到对应func句柄
-fn add_sysy_lib_func(program: &mut Program, ctx: &mut Context) {
-    let dec1 = FunctionData::new_decl("@getint".to_owned(), vec![], Type::get_i32());
-    let dec2 = FunctionData::new_decl("@getch".to_owned(), vec![], Type::get_i32());
-    let dec3 = FunctionData::new_decl(
-        "@getarray".to_owned(),
-        vec![Type::get_pointer(Type::get_i32())],
-        Type::get_i32()
-    );
-    let dec4 = FunctionData::new_decl(
-        "@putint".to_owned(),
-        vec![Type::get_i32()],
-        Type::get_unit()
-    );
-    let dec5 = FunctionData::new_decl("@putch".to_owned(), vec![Type::get_i32()], Type::get_unit());
-    let dec6 = FunctionData::new_decl(
-        "@putarray".to_owned(),
-        vec![Type::get_pointer(Type::get_i32()), Type::get_i32()],
-        Type::get_unit()
-    );
-    let dec7 = FunctionData::new_decl("@starttime".to_owned(), vec![], Type::get_unit());
-
-    let dec8 = FunctionData::new_decl("@stoptime".to_owned(), vec![], Type::get_unit());
-    let dec_list = vec![dec1, dec2, dec3, dec4, dec5, dec6, dec7, dec8];
-    for dec in dec_list {
-        let name = &dec.name()[1..].to_string();
-        let func = program.new_func(dec);
-        ctx.scopes.register_function(name, func);
-    }
-}
-
 impl GenerateProgram for FuncDef {
     type Out = ();
 
@@ -190,16 +159,18 @@ impl GenerateProgram for VarDef {
                 match prev_def {
                     Some(_) => Err(Error::DuplicateDecl),
                     None => {
-                        if ctx.in_global_scope() {
+                        let alloc = if ctx.in_global_scope() {
                             let init = program.new_value().zero_init(Type::get_i32());
                             let alloc = program.new_value().global_alloc(init);
                             program.set_value_name(alloc, Some(format!("@{}", id)));
+                            alloc
                         } else {
                             let func_data = program.func_mut(ctx.curr_fuc.unwrap());
                             let alloc = func_data.dfg_mut().new_value().alloc(Type::get_i32());
                             func_data.dfg_mut().set_value_name(alloc, Some(format!("@{}", id)));
                             push_back_value_as_ins(program, ctx, alloc)?;
-                        }
+                            alloc
+                        };
                         ctx.insert_symbol(&id, ASTValue::Variable(alloc));
                         Ok(())
                     }
@@ -796,4 +767,35 @@ fn push_back_values_as_ins(program: &mut Program, ctx: &mut Context, vals: Vec<V
 
 fn cur_block_mut<'a, 'b>(program: &'a mut Program, ctx: &'b mut Context) -> &'a mut BasicBlockNode {
     cur_func_mut(program, ctx).layout_mut().bb_mut(ctx.curr_block.unwrap())
+}
+
+// 为koopaIr注册sysy的库函数定义;同时在上下文中注册库函数name->func的映射,使得后文funcall能找到对应func句柄
+fn add_sysy_lib_func(program: &mut Program, ctx: &mut Context) {
+    let dec1 = FunctionData::new_decl("@getint".to_owned(), vec![], Type::get_i32());
+    let dec2 = FunctionData::new_decl("@getch".to_owned(), vec![], Type::get_i32());
+    let dec3 = FunctionData::new_decl(
+        "@getarray".to_owned(),
+        vec![Type::get_pointer(Type::get_i32())],
+        Type::get_i32()
+    );
+    let dec4 = FunctionData::new_decl(
+        "@putint".to_owned(),
+        vec![Type::get_i32()],
+        Type::get_unit()
+    );
+    let dec5 = FunctionData::new_decl("@putch".to_owned(), vec![Type::get_i32()], Type::get_unit());
+    let dec6 = FunctionData::new_decl(
+        "@putarray".to_owned(),
+        vec![Type::get_pointer(Type::get_i32()), Type::get_i32()],
+        Type::get_unit()
+    );
+    let dec7 = FunctionData::new_decl("@starttime".to_owned(), vec![], Type::get_unit());
+
+    let dec8 = FunctionData::new_decl("@stoptime".to_owned(), vec![], Type::get_unit());
+    let dec_list = vec![dec1, dec2, dec3, dec4, dec5, dec6, dec7, dec8];
+    for dec in dec_list {
+        let name = &dec.name()[1..].to_string();
+        let func = program.new_func(dec);
+        ctx.scopes.register_function(name, func);
+    }
 }

@@ -9,6 +9,7 @@ pub struct Context<'a> {
     prog: &'a Program,
     func: Option<Function>,
     cur_func_info: Option<FunctionInfo>,
+
     value_2_stack_offset: HashMap<Value, i32>,
 
     cur_value: Option<Value>,
@@ -25,6 +26,7 @@ pub enum InsData {
     Int(i32),
     StackSlot(i32),
     Reg(String),
+    GlobalVar(String),
 }
 /// Generates the given Koopa IR program to RISC-V assembly.
 pub fn generate_asm(program: &Program, path: &str) -> Result<()> {

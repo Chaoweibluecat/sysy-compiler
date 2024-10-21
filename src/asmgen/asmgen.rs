@@ -16,6 +16,13 @@ impl GenerateAsm for koopa::ir::Program {
     type Out = ();
 
     fn generate(&self, file: &mut File, ctx: &mut Context) -> Result<Self::Out> {
+        for value in self.inst_layout() {
+            if value.is_global() {
+                if let Some(value_data) = self.borrow_values().get(value) {
+                    value_data.generate(file, ctx)?;
+                }
+            }
+        }
         for &func in self.func_layout() {
             let func_data: &koopa::ir::FunctionData = self.func(func);
             // 函数声明内部没有block,不需要翻译为机器码,skip;
@@ -80,6 +87,10 @@ impl GenerateAsm for koopa::ir::entities::ValueData {
     type Out = ();
     fn generate(&self, file: &mut File, ctx: &mut Context) -> Result<Self::Out> {
         match self.kind() {
+            ValueKind::GlobalAlloc(global_alloc) => {
+                let init = global_alloc.init();
+                let init = global_alloc.init();
+            }
             ValueKind::Integer(_) => {
                 Ok(())
                 //
@@ -309,6 +320,9 @@ impl GenerateAsm for koopa::ir::Value {
                 } else {
                     Ok(InsData::StackSlot(4 * ((func_arg.index() - 8) as i32)))
                 }
+            }
+            ValueKind::GlobalAlloc(global) => {
+                let str = ctx.prog.borrow_value(global).name();
             }
             _ => Ok(InsData::StackSlot(ctx.find_value_stack_offset(*self)?)),
         }

@@ -2,7 +2,6 @@ use asmgen::generate_asm;
 use irgen::generate_program;
 use koopa::back::KoopaGenerator;
 use lalrpop_util::lalrpop_mod;
-use std::env::args;
 use std::fs::read_to_string;
 use std::io::Result;
 mod asmgen;

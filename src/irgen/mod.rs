@@ -28,9 +28,11 @@ pub struct Context {
 }
 
 pub struct Scopes {
-    // sysy标准:
+    // 函数内的作用域,是一个scope_chain
     pub values: LinkedList<HashMap<String, ASTValue>>,
+    // 全局作用域
     pub global_values: HashMap<String, ASTValue>,
+    // 函数名->program内注册的函数句柄
     pub func: HashMap<String, Function>,
 }
 
@@ -50,11 +52,11 @@ impl Scopes {
         self.func.get(name)
     }
 
-    pub fn insert_global_symbol(&mut self, name: &String, value: ASTValue) {
-        self.global_values.insert(name.clone(), value);
+    pub fn insert_global_symbol(&mut self, name: &str, value: ASTValue) {
+        self.global_values.insert(name.into(), value);
     }
 
-    pub fn look_up_global_symbol(&mut self, name: &String) -> Option<&ASTValue> {
+    pub fn look_up_global_symbol(&self, name: &str) -> Option<&ASTValue> {
         self.global_values.get(name)
     }
 
@@ -70,10 +72,7 @@ impl Scopes {
     }
 
     fn look_up_in_curr_scope(&self, name: &str) -> Option<&ASTValue> {
-        self.values
-            .front()
-            .and_then(|symbol_table| symbol_table.get(name))
-            .or_else(|| self.global_values.get(name))
+        self.values.front().and_then(|symbol_table| symbol_table.get(name))
     }
 
     fn new_scope(&mut self) {
@@ -136,7 +135,11 @@ impl Context {
     }
 
     fn look_up_in_curr_scope(&self, name: &str) -> Option<&ASTValue> {
-        self.scopes.look_up_in_curr_scope(name)
+        if self.in_global_scope() {
+            self.scopes.look_up_global_symbol(name)
+        } else {
+            self.scopes.look_up_in_curr_scope(name)
+        }
     }
 
     fn new_scope(&mut self) {
