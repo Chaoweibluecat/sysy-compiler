@@ -13,7 +13,7 @@ pub struct Context<'a> {
 
     cur_value: Option<Value>,
     basic_block_to_label_name: HashMap<BasicBlock, String>,
-    global_value_to_data_name: HashMap<Value, &'a str>,
+    global_value_to_data_name: HashMap<Value, String>,
     label_counter: i32,
 }
 
@@ -22,11 +22,11 @@ pub struct FunctionInfo {
     is_leaf_func: bool,
 }
 
-pub enum InsData {
+pub enum InsData<'a> {
     Int(i32),
     StackSlot(i32),
     Reg(String),
-    GlobalVar(String),
+    GlobalVar(&'a str),
 }
 /// Generates the given Koopa IR program to RISC-V assembly.
 pub fn generate_asm(program: &Program, path: &str) -> Result<()> {
@@ -40,6 +40,7 @@ pub fn generate_asm(program: &Program, path: &str) -> Result<()> {
             cur_value: None,
             basic_block_to_label_name: HashMap::new(),
             label_counter: 0,
+            global_value_to_data_name: HashMap::new(),
         })
     )
 }

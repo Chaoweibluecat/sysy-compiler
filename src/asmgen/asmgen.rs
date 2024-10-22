@@ -4,7 +4,9 @@ use std::{ fs::File, io::Write };
 use super::{ FunctionInfo, InsData };
 use crate::asmgen::Context;
 use crate::irgen::{ Error, Result };
+use koopa::front::ast::ZeroInit;
 use koopa::ir::entities::ValueData;
+use koopa::ir::values::ZeroInit;
 use koopa::ir::{ entities, BasicBlock, BinaryOp, FunctionData, Type, Value, ValueKind };
 // koopa IR => ASM
 pub trait GenerateAsm {
@@ -12,13 +14,20 @@ pub trait GenerateAsm {
     type Out;
 }
 
+pub trait GenerateInsData<'a> {
+    fn generate(&self, file: &mut File, ctx: &'a mut Context) -> Result<Self::Out>;
+    type Out;
+}
+
 impl GenerateAsm for koopa::ir::Program {
     type Out = ();
 
     fn generate(&self, file: &mut File, ctx: &mut Context) -> Result<Self::Out> {
+        writeln!(file, ".data");
         for value in self.inst_layout() {
             if value.is_global() {
                 if let Some(value_data) = self.borrow_values().get(value) {
+                    ctx.cur_value = Some(*value);
                     value_data.generate(file, ctx)?;
                 }
             }
@@ -89,19 +98,25 @@ impl GenerateAsm for koopa::ir::entities::ValueData {
         match self.kind() {
             ValueKind::GlobalAlloc(global_alloc) => {
                 let value = ctx.cur_value.unwrap();
-
-                // 这里假设 borrow_value 返回的是一个拥有足够生存期的数据
                 let borrowed_value = ctx.prog.borrow_value(value);
-
-                // 使用 as_ref() 来处理 Option 类型，并取出 String 的引用
                 if let Some(global_name) = borrowed_value.name().as_ref() {
-                    // 创建切片，如果 global_name 是有效的 String
-                    let slice: &str = &[1..];
-                    ctx.global_value_to_data_name.insert(value, slice);
+                    let var_name = global_name[1..].to_string();
+                    writeln!(file, "  .globl {}", var_name);
+                    writeln!(file, "{}:", var_name);
+                    let init = ctx.prog.borrow_value(global_alloc.init());
+                    match init.kind() {
+                        ValueKind::ZeroInit(zero_int) => unimplemented!(),
+                        ValueKind::Integer(int) => unimplemented!(),
+                        _ => unreachable!(),
+                    }
+                    init.generate(file, ctx);
+                    ctx.global_value_to_data_name.insert(value, var_name);
+                    Ok(())
+                } else {
+                    Err(Error::UnknownSymbol)
                 }
-
-                Ok(())
             }
+
             ValueKind::Integer(_) => {
                 Ok(())
                 //
@@ -188,7 +203,6 @@ impl GenerateAsm for koopa::ir::entities::ValueData {
                 let lhs = binary.lhs();
                 let rhs = binary.rhs();
                 let left = lhs.generate(file, ctx)?;
-                let right = rhs.generate(file, ctx)?;
 
                 let left_reg = match left {
                     InsData::Int(i) => {
@@ -205,6 +219,7 @@ impl GenerateAsm for koopa::ir::entities::ValueData {
                     }
                     _ => unimplemented!(),
                 };
+                let right = rhs.generate(file, ctx)?;
 
                 let right_reg = match right {
                     InsData::Int(i) => {
@@ -319,22 +334,23 @@ impl GenerateAsm for koopa::ir::values::Jump {
     }
 }
 
-impl GenerateAsm for koopa::ir::Value {
-    type Out = InsData;
-    fn generate(&self, file: &mut File, ctx: &mut Context) -> Result<Self::Out> {
+impl<'a> GenerateInsData<'a> for koopa::ir::Value {
+    type Out = InsData<'a>;
+    fn generate(&self, file: &mut File, ctx: &'a mut Context) -> Result<Self::Out> {
         let func_data = ctx.prog.func(ctx.func.unwrap());
         let value_data = func_data.dfg().value(*self);
         match value_data.kind() {
             ValueKind::Integer(v) => Ok(InsData::Int(v.value())),
             ValueKind::FuncArgRef(func_arg) => {
                 if func_arg.index() < 8 {
-                    Ok(InsData::Reg(format!("a{}", func_arg.index()).to_owned()))
+                    Ok(InsData::Reg(format!("a{}", func_arg.index())))
                 } else {
                     Ok(InsData::StackSlot(4 * ((func_arg.index() - 8) as i32)))
                 }
             }
             ValueKind::GlobalAlloc(global) => {
-                let str = ctx.prog.borrow_value(global).name();
+                let asm_name = ctx.global_value_to_data_name.get(&global.init()).unwrap();
+                Ok(InsData::GlobalVar(&asm_name))
             }
             _ => Ok(InsData::StackSlot(ctx.find_value_stack_offset(*self)?)),
         }
