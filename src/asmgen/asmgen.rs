@@ -1,13 +1,9 @@
-use std::env::Args;
 use std::{ fs::File, io::Write };
-
 use super::{ FunctionInfo, InsData };
 use crate::asmgen::Context;
 use crate::irgen::{ Error, Result };
-use koopa::front::ast::ZeroInit;
 use koopa::ir::entities::ValueData;
-use koopa::ir::values::ZeroInit;
-use koopa::ir::{ entities, BasicBlock, BinaryOp, FunctionData, Type, Value, ValueKind };
+use koopa::ir::{ BasicBlock, BinaryOp, FunctionData, Value, ValueKind };
 // koopa IR => ASM
 pub trait GenerateAsm {
     fn generate(&self, file: &mut File, ctx: &mut Context) -> Result<Self::Out>;
@@ -28,7 +24,9 @@ impl GenerateAsm for koopa::ir::Program {
             if value.is_global() {
                 if let Some(value_data) = self.borrow_values().get(value) {
                     ctx.cur_value = Some(*value);
-                    value_data.generate(file, ctx)?;
+                    if matches!(value_data.kind(), ValueKind::GlobalAlloc(_)) {
+                        value_data.generate(file, ctx)?;
+                    }
                 }
             }
         }
@@ -84,13 +82,6 @@ impl GenerateAsm for koopa::ir::FunctionData {
         Ok(())
     }
 }
-impl GenerateAsm for koopa::ir::values::Alloc {
-    type Out = ();
-    fn generate(&self, file: &mut File, ctx: &mut Context) -> Result<Self::Out> {
-        Ok(())
-        //do nothing
-    }
-}
 
 impl GenerateAsm for koopa::ir::entities::ValueData {
     type Out = ();
@@ -105,11 +96,14 @@ impl GenerateAsm for koopa::ir::entities::ValueData {
                     writeln!(file, "{}:", var_name);
                     let init = ctx.prog.borrow_value(global_alloc.init());
                     match init.kind() {
-                        ValueKind::ZeroInit(zero_int) => unimplemented!(),
-                        ValueKind::Integer(int) => unimplemented!(),
+                        ValueKind::ZeroInit(_) => {
+                            writeln!(file, "  .zero 4");
+                        }
+                        ValueKind::Integer(int) => {
+                            writeln!(file, "  .word {}", int.value());
+                        }
                         _ => unreachable!(),
                     }
-                    init.generate(file, ctx);
                     ctx.global_value_to_data_name.insert(value, var_name);
                     Ok(())
                 } else {
@@ -185,9 +179,17 @@ impl GenerateAsm for koopa::ir::entities::ValueData {
 
             ValueKind::Branch(if_else) => if_else.generate(file, ctx),
             ValueKind::Jump(jump) => jump.generate(file, ctx),
+            // load指令,获取目标的值,并写入到本指令对应的逻辑内存位置中
             ValueKind::Load(load) => {
-                if let InsData::StackSlot(offset) = load.src().generate(file, ctx)? {
-                    writeln!(file, "  lw    t0, {}(sp)", offset);
+                match load.src().generate(file, ctx)? {
+                    InsData::StackSlot(offset) => {
+                        writeln!(file, "  lw    t0, {}(sp)", offset);
+                    }
+                    InsData::GlobalVar(name) => {
+                        writeln!(file, "  la    t0, {}", name);
+                        writeln!(file, "  lw    t0, 0(t0)");
+                    }
+                    _ => unreachable!(),
                 }
 
                 if
@@ -275,9 +277,10 @@ impl GenerateAsm for koopa::ir::entities::ValueData {
                 }
                 Ok(())
             }
-
-            // 其他种类暂时遇不到
-            _ => unreachable!(),
+            _ => {
+                println!("{:?}", self);
+                unreachable!()
+            }
         }
     }
 }
@@ -337,6 +340,15 @@ impl GenerateAsm for koopa::ir::values::Jump {
 impl<'a> GenerateInsData<'a> for koopa::ir::Value {
     type Out = InsData<'a>;
     fn generate(&self, file: &mut File, ctx: &'a mut Context) -> Result<Self::Out> {
+        if ctx.is_global_value(self) {
+            let value_data = ctx.prog.borrow_value(*self);
+            if let ValueKind::GlobalAlloc(_) = value_data.kind() {
+                let asm_name = ctx.global_value_to_data_name.get(self).unwrap();
+                return Ok(InsData::GlobalVar(&asm_name));
+            } else {
+                unreachable!();
+            }
+        }
         let func_data = ctx.prog.func(ctx.func.unwrap());
         let value_data = func_data.dfg().value(*self);
         match value_data.kind() {
@@ -348,10 +360,8 @@ impl<'a> GenerateInsData<'a> for koopa::ir::Value {
                     Ok(InsData::StackSlot(4 * ((func_arg.index() - 8) as i32)))
                 }
             }
-            ValueKind::GlobalAlloc(global) => {
-                let asm_name = ctx.global_value_to_data_name.get(&global.init()).unwrap();
-                Ok(InsData::GlobalVar(&asm_name))
-            }
+            // global_alloc在此前分支中返回
+            ValueKind::GlobalAlloc(_) => { unreachable!() }
             _ => Ok(InsData::StackSlot(ctx.find_value_stack_offset(*self)?)),
         }
     }
@@ -417,6 +427,9 @@ pub fn generate_op_asm(
 }
 
 impl<'a> Context<'a> {
+    fn is_global_value(&self, value: &Value) -> bool {
+        self.global_value_to_data_name.get(value).is_some()
+    }
     // 扫描函数的所有指令,按需在栈上分配内存
     fn alloc_on_stack(&mut self, func_data: &FunctionData) {
         let mut offset = 0;

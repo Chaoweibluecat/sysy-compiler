@@ -10,7 +10,6 @@ pub struct Context<'a> {
     func: Option<Function>,
     cur_func_info: Option<FunctionInfo>,
     value_2_stack_offset: HashMap<Value, i32>,
-
     cur_value: Option<Value>,
     basic_block_to_label_name: HashMap<BasicBlock, String>,
     global_value_to_data_name: HashMap<Value, String>,

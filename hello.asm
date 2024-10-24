@@ -1,12 +1,19 @@
+.data
+  .globl var
+var:
+  .zero 4
   .text
   .global main
 main:
   addi  sp, sp, -16
-    sw  ra, 12(sp)
-  call  @getint
-  sw    a0, 0(sp)
-  lw    a0, 0(sp)
-    lw  ra, 12(sp)
+  la    t1, var
+  lw    t0, 0(t1)
+  sw    t0, 0(sp)
+  lw    t0, 0(sp)
+  li    t1, 1
+  add   t0, t0, t1
+  sw    t0, 4(sp)
+  lw    a0, 4(sp)
   addi  sp, sp,  16
   ret
 
