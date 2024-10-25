@@ -2,12 +2,13 @@
   .globl var
 var:
   .zero 4
+
   .text
   .global main
 main:
   addi  sp, sp, -16
-  la    t1, var
-  lw    t0, 0(t1)
+  la    t0, var
+  lw    t0, 0(t0)
   sw    t0, 0(sp)
   lw    t0, 0(sp)
   li    t1, 1

@@ -11,7 +11,7 @@ pub trait GenerateAsm {
 }
 
 pub trait GenerateInsData<'a> {
-    fn generate(&self, file: &mut File, ctx: &'a mut Context) -> Result<Self::Out>;
+    fn generate(&self, ctx: &'a mut Context) -> Result<Self::Out>;
     type Out;
 }
 
@@ -104,6 +104,7 @@ impl GenerateAsm for koopa::ir::entities::ValueData {
                         }
                         _ => unreachable!(),
                     }
+                    writeln!(file);
                     ctx.global_value_to_data_name.insert(value, var_name);
                     Ok(())
                 } else {
@@ -118,7 +119,7 @@ impl GenerateAsm for koopa::ir::entities::ValueData {
 
             ValueKind::Return(ret) => {
                 if let Some(value) = ret.value() {
-                    let res_val = value.generate(file, ctx)?;
+                    let res_val = value.generate(ctx)?;
                     match res_val {
                         InsData::Int(i) => {
                             writeln!(file, "  li    a0, {}", i);
@@ -154,7 +155,7 @@ impl GenerateAsm for koopa::ir::entities::ValueData {
             }
 
             ValueKind::Store(store) => {
-                let left_reg: String = match store.value().generate(file, ctx)? {
+                let left_reg: String = match store.value().generate(ctx)? {
                     InsData::Int(i) => {
                         if i != 0 {
                             writeln!(file, "  li    t0, {}", i);
@@ -171,7 +172,7 @@ impl GenerateAsm for koopa::ir::entities::ValueData {
                     _ => unimplemented!(),
                 };
 
-                if let InsData::StackSlot(offset) = store.dest().generate(file, ctx)? {
+                if let InsData::StackSlot(offset) = store.dest().generate(ctx)? {
                     writeln!(file, "  sw    {}, {}(sp)", left_reg, offset);
                 }
                 Ok(())
@@ -181,7 +182,7 @@ impl GenerateAsm for koopa::ir::entities::ValueData {
             ValueKind::Jump(jump) => jump.generate(file, ctx),
             // load指令,获取目标的值,并写入到本指令对应的逻辑内存位置中
             ValueKind::Load(load) => {
-                match load.src().generate(file, ctx)? {
+                match load.src().generate(ctx)? {
                     InsData::StackSlot(offset) => {
                         writeln!(file, "  lw    t0, {}(sp)", offset);
                     }
@@ -192,11 +193,7 @@ impl GenerateAsm for koopa::ir::entities::ValueData {
                     _ => unreachable!(),
                 }
 
-                if
-                    let InsData::StackSlot(self_offset) = ctx.cur_value
-                        .unwrap()
-                        .generate(file, ctx)?
-                {
+                if let InsData::StackSlot(self_offset) = ctx.cur_value.unwrap().generate(ctx)? {
                     writeln!(file, "  sw    t0, {}(sp)", self_offset);
                 }
                 Ok(())
@@ -204,7 +201,7 @@ impl GenerateAsm for koopa::ir::entities::ValueData {
             ValueKind::Binary(binary) => {
                 let lhs = binary.lhs();
                 let rhs = binary.rhs();
-                let left = lhs.generate(file, ctx)?;
+                let left = lhs.generate(ctx)?;
 
                 let left_reg = match left {
                     InsData::Int(i) => {
@@ -221,7 +218,7 @@ impl GenerateAsm for koopa::ir::entities::ValueData {
                     }
                     _ => unimplemented!(),
                 };
-                let right = rhs.generate(file, ctx)?;
+                let right = rhs.generate(ctx)?;
 
                 let right_reg = match right {
                     InsData::Int(i) => {
@@ -237,7 +234,7 @@ impl GenerateAsm for koopa::ir::entities::ValueData {
                 };
                 let result = "t0".into();
                 generate_op_asm(file, binary.op(), &left_reg, &right_reg, &result);
-                if let InsData::StackSlot(offset) = ctx.cur_value.unwrap().generate(file, ctx)? {
+                if let InsData::StackSlot(offset) = ctx.cur_value.unwrap().generate(ctx)? {
                     writeln!(file, "  sw    t0, {}(sp)", offset);
                 }
                 Ok(())
@@ -247,7 +244,7 @@ impl GenerateAsm for koopa::ir::entities::ValueData {
                 for i in 0..func_call.args().len() {
                     if i < 8 {
                         let dst = format!("a{}", i).to_owned();
-                        match func_call.args()[i].generate(file, ctx)? {
+                        match func_call.args()[i].generate(ctx)? {
                             InsData::Int(int) => {
                                 writeln!(file, "  li    {},  {}", dst, int);
                             }
@@ -258,7 +255,7 @@ impl GenerateAsm for koopa::ir::entities::ValueData {
                         };
                     } else {
                         let dst = (i - 8) * 4;
-                        match func_call.args()[i].generate(file, ctx)? {
+                        match func_call.args()[i].generate(ctx)? {
                             InsData::Int(int) => {
                                 writeln!(file, "  li    t0,  {}", int);
                                 writeln!(file, "  sw    t0,  {}(sp)", dst);
@@ -288,7 +285,7 @@ impl GenerateAsm for koopa::ir::entities::ValueData {
 impl GenerateAsm for koopa::ir::values::Branch {
     type Out = ();
     fn generate(&self, file: &mut File, ctx: &mut Context) -> Result<Self::Out> {
-        let value = self.cond().generate(file, ctx)?;
+        let value = self.cond().generate(ctx)?;
         match value {
             InsData::StackSlot(offset) => {
                 writeln!(file, "  lw    t0, {}(sp)", offset);
@@ -336,10 +333,10 @@ impl GenerateAsm for koopa::ir::values::Jump {
         Ok(())
     }
 }
-
+//返回当前value在作为别的指令的操作数时，如何生成代码
 impl<'a> GenerateInsData<'a> for koopa::ir::Value {
     type Out = InsData<'a>;
-    fn generate(&self, file: &mut File, ctx: &'a mut Context) -> Result<Self::Out> {
+    fn generate(&self, ctx: &'a mut Context) -> Result<Self::Out> {
         if ctx.is_global_value(self) {
             let value_data = ctx.prog.borrow_value(*self);
             if let ValueKind::GlobalAlloc(_) = value_data.kind() {
