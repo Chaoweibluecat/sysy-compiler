@@ -1,3 +1,5 @@
+use core::alloc;
+
 use super::{ eval::Eval, ASTValue, Error };
 use crate::{ ast::*, irgen::{ Context, Result } };
 use koopa::{
@@ -154,7 +156,7 @@ impl GenerateProgram for VarDef {
     type Out = ();
     fn generate(&self, program: &mut Program, ctx: &mut Context) -> Result<Self::Out> {
         match self {
-            VarDef::IdOnly(id, _) => {
+            VarDef::IdOnly(id, len) => {
                 let prev_def = ctx.look_up_in_curr_scope(id);
                 match prev_def {
                     Some(_) => Err(Error::DuplicateDecl),
@@ -166,7 +168,18 @@ impl GenerateProgram for VarDef {
                             alloc
                         } else {
                             let func_data = program.func_mut(ctx.curr_fuc.unwrap());
-                            let alloc = func_data.dfg_mut().new_value().alloc(Type::get_i32());
+                            let alloc = match len {
+                                Some(len) => {
+                                    let parsed_len = len.eval(ctx)?;
+                                    func_data
+                                        .dfg_mut()
+                                        .new_value()
+                                        .alloc(
+                                            Type::get_array(Type::get_i32(), parsed_len as usize)
+                                        )
+                                }
+                                None => func_data.dfg_mut().new_value().alloc(Type::get_i32()),
+                            };
                             func_data.dfg_mut().set_value_name(alloc, Some(format!("@{}", id)));
                             push_back_value_as_ins(program, ctx, alloc)?;
                             alloc
