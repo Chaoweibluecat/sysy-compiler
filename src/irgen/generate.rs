@@ -154,7 +154,7 @@ impl GenerateProgram for VarDef {
     type Out = ();
     fn generate(&self, program: &mut Program, ctx: &mut Context) -> Result<Self::Out> {
         match self {
-            VarDef::IdOnly(id) => {
+            VarDef::IdOnly(id, _) => {
                 let prev_def = ctx.look_up_in_curr_scope(id);
                 match prev_def {
                     Some(_) => Err(Error::DuplicateDecl),
@@ -176,7 +176,7 @@ impl GenerateProgram for VarDef {
                     }
                 }
             }
-            VarDef::Assign(id, init_val) => {
+            VarDef::Assign(id, _, init_val) => {
                 let prev_def = ctx.look_up_in_curr_scope(id);
                 match prev_def {
                     Some(_) => Err(Error::DuplicateDecl),
@@ -199,7 +199,10 @@ impl GenerateProgram for VarDef {
 impl GenerateProgram for InitVal {
     type Out = Value;
     fn generate(&self, program: &mut Program, ctx: &mut Context) -> Result<Self::Out> {
-        self.exp.generate(program, ctx)
+        match self {
+            InitVal::Single(exp) => exp.generate(program, ctx),
+            _ => unimplemented!(),
+        }
     }
 }
 
@@ -225,7 +228,10 @@ impl GenerateProgram for ConstDef {
 impl GenerateProgram for ConstInitVal {
     type Out = i32;
     fn generate(&self, program: &mut Program, ctx: &mut Context) -> Result<Self::Out> {
-        self.exp.generate(program, ctx)
+        match self {
+            ConstInitVal::Single(exp) => exp.generate(program, ctx),
+            _ => unimplemented!(),
+        }
     }
 }
 

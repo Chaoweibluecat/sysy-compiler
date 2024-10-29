@@ -97,11 +97,22 @@ VarDecl: VarDecl = {
 }
 
 VarDef: VarDef = {
-  Ident => VarDef::IdOnly(<>),
-  <Ident> "=" <InitVal> => VarDef::Assign(<>),
+  <id: Ident> <length: ("[" <ConstExp> "]")?> => VarDef::IdOnly(<>),
+  <id: Ident> <length: ("[" <ConstExp> "]")?> "=" <init: InitVal> => VarDef::Assign(<>),
 }
 
-InitVal: InitVal = <exp: Exp> => InitVal{exp};
+InitVal: InitVal = {
+    <exp: Exp> => InitVal::Single(exp),
+    "{" <agg: (ExpAgg)?> "}" => InitVal::List(agg.unwrap_or_else(|| {vec![]})),
+}
+
+ExpAgg: Vec<Exp> = {
+    <exp1: Exp> <mut exp_list: ("," <Exp>)*> => {
+        exp_list.insert(0, exp1);
+        exp_list
+    }
+}
+
 
 ConstDecl: ConstDecl = {
   "const" "int" <def_1: ConstDef> <mut def_list: ("," <ConstDef>)*> ";"  => {
@@ -115,13 +126,20 @@ BType: BType = {
 }
 
 ConstDef: ConstDef = {
-  <id: Ident> "=" <init_val: ConstInitVal> => {
+  <id: Ident> "=" <length: ("[" <ConstExp> "]")?> <init_val: ConstInitVal> => {
     ConstDef {<>}
   }
 }
 
 ConstInitVal: ConstInitVal = {
   <exp: ConstExp> => ConstInitVal {<>}
+}
+
+ConstExpAgg: Vec<ConstExp> = {
+    <exp1: ConstExp> <mut exp_list: ("," <ConstExp>)*> => {
+        exp_list.insert(0, exp1);
+        exp_list
+    }
 }
 
 ConstExp: ConstExp = {
@@ -227,7 +245,12 @@ PrimaryExp: PrimaryExp = {
 }
 
 Number: i32 = <num: IntConst> => <>;
-LVal: LVal = <id: Ident> => LVal{<>};
+LVal: LVal = {
+    <id: Ident> <len: ("[" <Exp> "]")?> => {
+        let length_box = len.map(|x| {Box::new(x)});
+        LVal{id, length:length_box}
+    }
+}
 
 // 如果匹配到标识符, 就返回这个字符串
 // 一对尖括号在此处指代的是正则表达式匹配到的字符串 (&str)

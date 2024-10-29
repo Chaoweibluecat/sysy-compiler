@@ -143,12 +143,13 @@ pub struct VarDecl {
 }
 #[derive(Debug)]
 pub enum VarDef {
-    IdOnly(String),
-    Assign(String, InitVal),
+    IdOnly(String, Option<ConstExp>),
+    Assign(String, Option<ConstExp>, InitVal),
 }
 #[derive(Debug)]
-pub struct InitVal {
-    pub exp: Exp,
+pub enum InitVal {
+    List(Vec<Exp>),
+    Single(Exp),
 }
 
 #[derive(Debug)]
@@ -159,11 +160,13 @@ pub struct ConstDecl {
 #[derive(Debug)]
 pub struct ConstDef {
     pub id: String,
+    pub length: Option<ConstExp>,
     pub init_val: ConstInitVal,
 }
 #[derive(Debug)]
-pub struct ConstInitVal {
-    pub exp: ConstExp,
+pub enum ConstInitVal {
+    Single(ConstExp),
+    List(Vec<ConstExp>),
 }
 #[derive(Debug)]
 pub struct ConstExp {
@@ -176,6 +179,7 @@ pub enum BType {
 #[derive(Debug)]
 pub struct LVal {
     pub id: String,
+    pub length: Option<Box<Exp>>,
 }
 
 #[derive(Debug)]
