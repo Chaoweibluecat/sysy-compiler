@@ -1,9 +1,6 @@
-use core::alloc;
-
 use super::{ eval::Eval, ASTValue, Error };
 use crate::{ ast::*, irgen::{ Context, Result } };
 use koopa::{
-    front::ast::FunDecl,
     ir::{
         builder::{ BasicBlockBuilder, GlobalInstBuilder, LocalInstBuilder, ValueBuilder },
         layout::BasicBlockNode,
@@ -12,7 +9,6 @@ use koopa::{
         FunctionData,
         Program,
         Type,
-        TypeKind,
         Value,
     },
 };
@@ -168,9 +164,10 @@ impl GenerateProgram for VarDef {
                             alloc
                         } else {
                             let func_data = program.func_mut(ctx.curr_fuc.unwrap());
+                            //根据是否是数组,选择在ir中alloc i32还是数组
                             let alloc = match len {
-                                Some(len) => {
-                                    let parsed_len = len.eval(ctx)?;
+                                Some(exp) => {
+                                    let parsed_len = exp.eval(ctx)?;
                                     func_data
                                         .dfg_mut()
                                         .new_value()
@@ -189,18 +186,87 @@ impl GenerateProgram for VarDef {
                     }
                 }
             }
-            VarDef::Assign(id, _, init_val) => {
+            VarDef::Assign(id, len, init_val) => {
                 let prev_def = ctx.look_up_in_curr_scope(id);
                 match prev_def {
                     Some(_) => Err(Error::DuplicateDecl),
                     None => {
                         let exp_val = init_val.generate(program, ctx)?;
-                        let func_data = program.func_mut(ctx.curr_fuc.unwrap());
-                        let alloc = func_data.dfg_mut().new_value().alloc(Type::get_i32());
-                        func_data.dfg_mut().set_value_name(alloc, Some(format!("@{}", id)));
-                        let store_ins = func_data.dfg_mut().new_value().store(exp_val, alloc);
-                        push_back_values_as_ins(program, ctx, vec![alloc, store_ins]);
+                        let mut array_len: Option<i32> = None;
+                        let alloc = match len {
+                            Some(exp) => {
+                                let parsed_len = exp.eval(ctx)?;
+                                array_len = Some(parsed_len);
+                                cur_func_mut(program, ctx)
+                                    .dfg_mut()
+                                    .new_value()
+                                    .alloc(Type::get_array(Type::get_i32(), parsed_len as usize))
+                            }
+                            None =>
+                                cur_func_mut(program, ctx)
+                                    .dfg_mut()
+                                    .new_value()
+                                    .alloc(Type::get_i32()),
+                        };
+                        cur_func_mut(program, ctx)
+                            .dfg_mut()
+                            .set_value_name(alloc, Some(format!("@{}", id)));
                         ctx.insert_symbol(&format!("{}", id).to_owned(), ASTValue::Variable(alloc));
+                        push_back_value_as_ins(program, ctx, alloc);
+
+                        match exp_val {
+                            InitValResult::Value(val) => {
+                                let store_ins = cur_func_mut(program, ctx)
+                                    .dfg_mut()
+                                    .new_value()
+                                    .store(val, alloc);
+                                push_back_value_as_ins(program, ctx, store_ins);
+                            }
+                            InitValResult::List(list) => {
+                                assert!(array_len.is_some());
+                                let mut ins = vec![];
+                                for i in 0..list.len() {
+                                    let val = list[i];
+                                    let idx = cur_func_mut(program, ctx)
+                                        .dfg_mut()
+                                        .new_value()
+                                        .integer(i as i32);
+                                    let ptr = cur_func_mut(program, ctx)
+                                        .dfg_mut()
+                                        .new_value()
+                                        .get_elem_ptr(alloc, idx);
+                                    let store_ins = cur_func_mut(program, ctx)
+                                        .dfg_mut()
+                                        .new_value()
+                                        .store(val, ptr);
+                                    ins.push(ptr);
+                                    ins.push(store_ins);
+                                }
+                                // 补0
+                                for i in list.len()..array_len.unwrap() as usize {
+                                    let idx = cur_func_mut(program, ctx)
+                                        .dfg_mut()
+                                        .new_value()
+                                        .integer(i as i32);
+                                    let ptr = cur_func_mut(program, ctx)
+                                        .dfg_mut()
+                                        .new_value()
+                                        .get_elem_ptr(alloc, idx);
+                                    let zero = cur_func_mut(program, ctx)
+                                        .dfg_mut()
+                                        .new_value()
+                                        .integer(0);
+                                    let store_ins = cur_func_mut(program, ctx)
+                                        .dfg_mut()
+                                        .new_value()
+                                        .store(zero, ptr);
+                                    ins.push(ptr);
+                                    ins.push(store_ins);
+                                }
+                                push_back_values_as_ins(program, ctx, ins);
+                            }
+                        }
+
                         Ok(())
                     }
                 }
@@ -209,12 +275,23 @@ impl GenerateProgram for VarDef {
     }
 }
 
+pub enum InitValResult {
+    Value(Value),
+    List(Vec<Value>),
+}
+
 impl GenerateProgram for InitVal {
-    type Out = Value;
+    type Out = InitValResult;
     fn generate(&self, program: &mut Program, ctx: &mut Context) -> Result<Self::Out> {
         match self {
-            InitVal::Single(exp) => exp.generate(program, ctx),
-            _ => unimplemented!(),
+            InitVal::Single(exp) => Ok(InitValResult::Value(exp.generate(program, ctx)?)),
+            InitVal::List(list) => {
+                let res: Result<Vec<Value>> = list
+                    .iter()
+                    .map(|exp| { exp.generate(program, ctx) })
+                    .collect();
+                Ok(InitValResult::List(res?))
+            }
         }
     }
 }
@@ -232,18 +309,40 @@ impl GenerateProgram for ConstDecl {
 impl GenerateProgram for ConstDef {
     type Out = ();
     fn generate(&self, program: &mut Program, ctx: &mut Context) -> Result<Self::Out> {
-        let eval_val = self.init_val.generate(program, ctx)?;
-        ctx.insert_symbol(&self.id.clone(), ASTValue::Const(eval_val));
+        match &self.length {
+            None => {
+                let eval_val = self.init_val.generate(program, ctx)?;
+                if let ConstInitValResult::Int(val) = eval_val {
+                    ctx.insert_symbol(&self.id.clone(), ASTValue::Const(val));
+                }
+            }
+            Some(len) => {
+                // let eval_val = self.init_val.generate(program, ctx)?;
+                // if let ConstInitValResult::Value(val) = eval_val {
+                //     ctx.insert_symbol(&self.id.clone(), ASTValue::Variable(val));
+                // }
+            }
+        }
         Ok(())
     }
 }
 
+pub enum ConstInitValResult {
+    Int(i32),
+    List(Value, i32),
+}
+
 impl GenerateProgram for ConstInitVal {
-    type Out = i32;
+    type Out = ConstInitValResult;
     fn generate(&self, program: &mut Program, ctx: &mut Context) -> Result<Self::Out> {
         match self {
-            ConstInitVal::Single(exp) => exp.generate(program, ctx),
-            _ => unimplemented!(),
+            ConstInitVal::Single(exp) => Ok(ConstInitValResult::Int(exp.generate(program, ctx)?)),
+            ConstInitVal::List(list) => {
+                for const_exp in list {
+                    //
+                }
+                Ok(ConstInitValResult::Int(1))
+            }
         }
     }
 }
@@ -270,18 +369,28 @@ impl GenerateProgram for Stmt {
                 Ok(())
             }
             Stmt::IfStmt(if_stmt) => if_stmt.generate(program, ctx),
+
             Stmt::Assign(lval, exp) => {
                 let sym_val = ctx.look_up_symbol(&lval.id);
                 match sym_val {
                     Some(ASTValue::Const(_)) => Err(Error::RedefineConstValue),
                     None => Err(Error::UnknownSymbol),
-                    Some(ASTValue::Variable(lval)) => {
-                        let local_lval = lval.clone();
+                    Some(ASTValue::Variable(var)) => {
+                        let mut dst = var.clone();
+                        // 如果dst是一个数组,那么修改赋值的dst
+                        // todo type check
+                        if let Some(offset) = &lval.offset {
+                            let idx = offset.generate(program, ctx)?;
+                            dst = cur_func_mut(program, ctx)
+                                .dfg_mut()
+                                .new_value()
+                                .get_elem_ptr(dst, idx);
+                        }
                         let rval = exp.generate(program, ctx)?;
                         let store_ins = cur_func_mut(program, ctx)
                             .dfg_mut()
                             .new_value()
-                            .store(rval, local_lval);
+                            .store(rval, dst);
                         push_back_value_as_ins(program, ctx, store_ins)?;
                         Ok(())
                     }
@@ -639,6 +748,7 @@ impl GenerateProgram for UnaryExp {
                     }
                     PrimaryExp::Exp(exp) => exp.generate(program, ctx),
                     PrimaryExp::LVal(lval) => {
+                        let is_array = lval.offset.is_some();
                         // lval作为表达式（即出现在等号右边时),此时需要求值
                         // 1. name => 内存位置 (查env//符号表)
                         // 2. 内存位置 => 内存值 (koopa中的load, 读出val作为指针实际指向的栈值，作为表达式的返回)
@@ -646,6 +756,7 @@ impl GenerateProgram for UnaryExp {
                         match value {
                             None => Err(super::Error::UnknownSymbol),
                             Some(ASTValue::Const(val)) => {
+                                assert!(!is_array);
                                 let local_val = val.clone();
                                 // 表达式中的左值,如果是常量,直接取解析结果
                                 Ok(
@@ -655,13 +766,31 @@ impl GenerateProgram for UnaryExp {
                                         .integer(local_val)
                                 )
                             }
-                            Some(ASTValue::Variable(lval)) => {
-                                let func_data: &mut FunctionData = program.func_mut(
-                                    ctx.curr_fuc.unwrap()
-                                );
-                                let load = func_data.dfg_mut().new_value().load(*lval);
-                                push_back_value_as_ins(program, ctx, load)?;
-                                Ok(load)
+                            Some(ASTValue::Variable(var)) => {
+                                let local_var = var.clone();
+                                match &lval.offset {
+                                    Some(offset) => {
+                                        let offset = offset.generate(program, ctx)?;
+                                        let get_ptr = cur_func_mut(program, ctx)
+                                            .dfg_mut()
+                                            .new_value()
+                                            .get_elem_ptr(local_var, offset);
+                                        let load = cur_func_mut(program, ctx)
+                                            .dfg_mut()
+                                            .new_value()
+                                            .load(get_ptr);
+                                        push_back_values_as_ins(program, ctx, vec![get_ptr, load]);
+                                        Ok(load)
+                                    }
+                                    None => {
+                                        let load = cur_func_mut(program, ctx)
+                                            .dfg_mut()
+                                            .new_value()
+                                            .load(local_var);
+                                        push_back_value_as_ins(program, ctx, load)?;
+                                        Ok(load)
+                                    }
+                                }
                             }
                             _ => unreachable!(),
                         }
@@ -686,7 +815,7 @@ impl GenerateProgram for UnaryExp {
                     }
                 }
             }
-            UnaryExp::FuncCall(func_call) => { func_call.generate(program, ctx) }
+            UnaryExp::FuncCall(func_call) => func_call.generate(program, ctx),
             _ => unimplemented!(),
         }
     }
@@ -765,7 +894,7 @@ fn push_block(program: &mut Program, ctx: &mut Context, bb: BasicBlock) -> Resul
         .layout_mut()
         .bbs_mut()
         .push_key_back(bb)
-        .map_err(|_| { Error::PushBlockFailed })?;
+        .map_err(|_| Error::PushBlockFailed)?;
     ctx.curr_block = Some(bb);
     Ok(())
 }
@@ -777,7 +906,7 @@ fn push_back_value_as_ins(program: &mut Program, ctx: &mut Context, val: Value) 
     cur_block_mut(program, ctx)
         .insts_mut()
         .push_key_back(val)
-        .map_err(|_| { Error::PushInstructionFailed })?;
+        .map_err(|_| Error::PushInstructionFailed)?;
     Ok(())
 }
 fn push_back_values_as_ins(program: &mut Program, ctx: &mut Context, vals: Vec<Value>) {

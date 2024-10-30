@@ -132,7 +132,8 @@ ConstDef: ConstDef = {
 }
 
 ConstInitVal: ConstInitVal = {
-  <exp: ConstExp> => ConstInitVal {<>}
+  <exp: ConstExp> => ConstInitVal::Single(<>),
+  "{" <agg: (ConstExpAgg)?> "}" => ConstInitVal::List(agg.unwrap_or_else(|| {vec![]})),
 }
 
 ConstExpAgg: Vec<ConstExp> = {
@@ -248,7 +249,7 @@ Number: i32 = <num: IntConst> => <>;
 LVal: LVal = {
     <id: Ident> <len: ("[" <Exp> "]")?> => {
         let length_box = len.map(|x| {Box::new(x)});
-        LVal{id, length:length_box}
+        LVal{id, offset:length_box}
     }
 }
 
