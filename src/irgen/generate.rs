@@ -377,7 +377,7 @@ impl GenerateProgram for Stmt {
                     None => Err(Error::UnknownSymbol),
                     Some(ASTValue::Variable(var)) => {
                         let mut dst = var.clone();
-                        // 如果dst是一个数组,那么修改赋值的dst
+                        // 如果dst是一个数组,那么dst为arr[exp],否则就是var
                         // todo type check
                         if let Some(offset) = &lval.offset {
                             let idx = offset.generate(program, ctx)?;
