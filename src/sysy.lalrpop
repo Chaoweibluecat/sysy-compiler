@@ -132,7 +132,8 @@ ConstDef: ConstDef = {
 }
 
 ConstInitVal: ConstInitVal = {
-  <exp: ConstExp> => ConstInitVal {<>}
+  <exp: ConstExp> => ConstInitVal::Single(<>),
+  "{" <agg: (ConstExpAgg)?> "}" => ConstInitVal::List(agg.unwrap_or_else(|| {vec![]})),
 }
 
 ConstExpAgg: Vec<ConstExp> = {
