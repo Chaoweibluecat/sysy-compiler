@@ -97,19 +97,19 @@ VarDecl: VarDecl = {
 }
 
 VarDef: VarDef = {
-  <id: Ident> <length: ("[" <ConstExp> "]")?> => VarDef::IdOnly(<>),
-  <id: Ident> <length: ("[" <ConstExp> "]")?> "=" <init: InitVal> => VarDef::Assign(<>),
+  <id: Ident> <length: ("[" <ConstExp> "]")*> => VarDef::IdOnly(<>),
+  <id: Ident> <length: ("[" <ConstExp> "]")*> "=" <init: InitVal> => VarDef::Assign(<>),
 }
 
 InitVal: InitVal = {
     <exp: Exp> => InitVal::Single(exp),
-    "{" <agg: (ExpAgg)?> "}" => InitVal::List(agg.unwrap_or_else(|| {vec![]})),
+    "{" <agg: (InitValAgg)?> "}" => InitVal::List(agg.unwrap_or_else(|| {vec![]})),
 }
 
-ExpAgg: Vec<Exp> = {
-    <exp1: Exp> <mut exp_list: ("," <Exp>)*> => {
-        exp_list.insert(0, exp1);
-        exp_list
+InitValAgg: Vec<InitVal> = {
+    <val1: InitVal> <mut val_list: ("," <InitVal>)*> => {
+        val_list.insert(0, val1);
+        val_list
     }
 }
 
@@ -126,7 +126,7 @@ BType: BType = {
 }
 
 ConstDef: ConstDef = {
-  <id: Ident> "=" <length: ("[" <ConstExp> "]")?> <init_val: ConstInitVal> => {
+  <id: Ident> "=" <dims: ("[" <ConstExp> "]")*> <init_val: ConstInitVal> => {
     ConstDef {<>}
   }
 }

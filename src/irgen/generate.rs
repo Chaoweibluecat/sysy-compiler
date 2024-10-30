@@ -165,18 +165,13 @@ impl GenerateProgram for VarDef {
                         } else {
                             let func_data = program.func_mut(ctx.curr_fuc.unwrap());
                             //根据是否是数组,选择在ir中alloc i32还是数组
-                            let alloc = match len {
-                                Some(exp) => {
-                                    let parsed_len = exp.eval(ctx)?;
-                                    func_data
-                                        .dfg_mut()
-                                        .new_value()
-                                        .alloc(
-                                            Type::get_array(Type::get_i32(), parsed_len as usize)
-                                        )
-                                }
-                                None => func_data.dfg_mut().new_value().alloc(Type::get_i32()),
-                            };
+                            let mut ty = Type::get_i32();
+                            for i in 0..len.len() {
+                                let init_val = &len[i];
+                                let parsed_len = init_val.eval(ctx)?;
+                                ty = Type::get_array(ty, parsed_len as usize);
+                            }
+                            let alloc = func_data.dfg_mut().new_value().alloc(ty);
                             func_data.dfg_mut().set_value_name(alloc, Some(format!("@{}", id)));
                             push_back_value_as_ins(program, ctx, alloc)?;
                             alloc
@@ -193,79 +188,80 @@ impl GenerateProgram for VarDef {
                     None => {
                         let exp_val = init_val.generate(program, ctx)?;
                         let mut array_len: Option<i32> = None;
-                        let alloc = match len {
-                            Some(exp) => {
-                                let parsed_len = exp.eval(ctx)?;
-                                array_len = Some(parsed_len);
-                                cur_func_mut(program, ctx)
-                                    .dfg_mut()
-                                    .new_value()
-                                    .alloc(Type::get_array(Type::get_i32(), parsed_len as usize))
-                            }
-                            None =>
-                                cur_func_mut(program, ctx)
-                                    .dfg_mut()
-                                    .new_value()
-                                    .alloc(Type::get_i32()),
-                        };
-                        cur_func_mut(program, ctx)
-                            .dfg_mut()
-                            .set_value_name(alloc, Some(format!("@{}", id)));
-                        ctx.insert_symbol(&format!("{}", id).to_owned(), ASTValue::Variable(alloc));
-                        push_back_value_as_ins(program, ctx, alloc);
+                        unimplemented!();
+                        // let alloc = match len {
+                        //     Some(exp) => {
+                        //         let parsed_len = exp.eval(ctx)?;
+                        //         array_len = Some(parsed_len);
+                        //         cur_func_mut(program, ctx)
+                        //             .dfg_mut()
+                        //             .new_value()
+                        //             .alloc(Type::get_array(Type::get_i32(), parsed_len as usize))
+                        //     }
+                        //     None =>
+                        //         cur_func_mut(program, ctx)
+                        //             .dfg_mut()
+                        //             .new_value()
+                        //             .alloc(Type::get_i32()),
+                        // };
+                        // cur_func_mut(program, ctx)
+                        //     .dfg_mut()
+                        //     .set_value_name(alloc, Some(format!("@{}", id)));
+                        // ctx.insert_symbol(&format!("{}", id).to_owned(), ASTValue::Variable(alloc));
+                        // push_back_value_as_ins(program, ctx, alloc);
 
-                        match exp_val {
-                            InitValResult::Value(val) => {
-                                let store_ins = cur_func_mut(program, ctx)
-                                    .dfg_mut()
-                                    .new_value()
-                                    .store(val, alloc);
-                                push_back_value_as_ins(program, ctx, store_ins);
-                            }
-                            InitValResult::List(list) => {
-                                assert!(array_len.is_some());
-                                let mut ins = vec![];
-                                for i in 0..list.len() {
-                                    let val = list[i];
-                                    let idx = cur_func_mut(program, ctx)
-                                        .dfg_mut()
-                                        .new_value()
-                                        .integer(i as i32);
-                                    let ptr = cur_func_mut(program, ctx)
-                                        .dfg_mut()
-                                        .new_value()
-                                        .get_elem_ptr(alloc, idx);
-                                    let store_ins = cur_func_mut(program, ctx)
-                                        .dfg_mut()
-                                        .new_value()
-                                        .store(val, ptr);
-                                    ins.push(ptr);
-                                    ins.push(store_ins);
-                                }
-                                // 补0
-                                for i in list.len()..array_len.unwrap() as usize {
-                                    let idx = cur_func_mut(program, ctx)
-                                        .dfg_mut()
-                                        .new_value()
-                                        .integer(i as i32);
-                                    let ptr = cur_func_mut(program, ctx)
-                                        .dfg_mut()
-                                        .new_value()
-                                        .get_elem_ptr(alloc, idx);
-                                    let zero = cur_func_mut(program, ctx)
-                                        .dfg_mut()
-                                        .new_value()
-                                        .integer(0);
-                                    let store_ins = cur_func_mut(program, ctx)
-                                        .dfg_mut()
-                                        .new_value()
-                                        .store(zero, ptr);
-                                    ins.push(ptr);
-                                    ins.push(store_ins);
-                                }
-                                push_back_values_as_ins(program, ctx, ins);
-                            }
-                        }
+                        // match exp_val {
+                        //     InitValResult::Value(val) => {
+                        //         let store_ins = cur_func_mut(program, ctx)
+                        //             .dfg_mut()
+                        //             .new_value()
+                        //             .store(val, alloc);
+                        //         push_back_value_as_ins(program, ctx, store_ins);
+                        //     }
+                        //     InitValResult::List(list) => {
+                        //         assert!(array_len.is_some());
+                        //         let mut ins = vec![];
+                        //         for i in 0..list.len() {
+                        //             let val = list[i];
+                        //             let idx = cur_func_mut(program, ctx)
+                        //                 .dfg_mut()
+                        //                 .new_value()
+                        //                 .integer(i as i32);
+                        //             let ptr = cur_func_mut(program, ctx)
+                        //                 .dfg_mut()
+                        //                 .new_value()
+                        //                 .get_elem_ptr(alloc, idx);
+                        //             let store_ins = cur_func_mut(program, ctx)
+                        //                 .dfg_mut()
+                        //                 .new_value()
+                        //                 .store(val, ptr);
+                        //             ins.push(ptr);
+                        //             ins.push(store_ins);
+                        //         }
+                        //         // 补0
+                        //         for i in list.len()..array_len.unwrap() as usize {
+                        //             let idx = cur_func_mut(program, ctx)
+                        //                 .dfg_mut()
+                        //                 .new_value()
+                        //                 .integer(i as i32);
+                        //             let ptr = cur_func_mut(program, ctx)
+                        //                 .dfg_mut()
+                        //                 .new_value()
+                        //                 .get_elem_ptr(alloc, idx);
+                        //             let zero = cur_func_mut(program, ctx)
+                        //                 .dfg_mut()
+                        //                 .new_value()
+                        //                 .integer(0);
+                        //             let store_ins = cur_func_mut(program, ctx)
+                        //                 .dfg_mut()
+                        //                 .new_value()
+                        //                 .store(zero, ptr);
+                        //             ins.push(ptr);
+                        //             ins.push(store_ins);
+                        //         }
+                        //         push_back_values_as_ins(program, ctx, ins);
+                        //     }
+                        // }
 
                         Ok(())
                     }
@@ -286,11 +282,12 @@ impl GenerateProgram for InitVal {
         match self {
             InitVal::Single(exp) => Ok(InitValResult::Value(exp.generate(program, ctx)?)),
             InitVal::List(list) => {
-                let res: Result<Vec<Value>> = list
-                    .iter()
-                    .map(|exp| { exp.generate(program, ctx) })
-                    .collect();
-                Ok(InitValResult::List(res?))
+                unimplemented!()
+                // let res: Result<Vec<Value>> = list
+                //     .iter()
+                //     .map(|exp| { exp.generate(program, ctx) })
+                //     .collect();
+                // Ok(InitValResult::List(res?))
             }
         }
     }
@@ -309,14 +306,14 @@ impl GenerateProgram for ConstDecl {
 impl GenerateProgram for ConstDef {
     type Out = ();
     fn generate(&self, program: &mut Program, ctx: &mut Context) -> Result<Self::Out> {
-        match &self.length {
-            None => {
+        match &self.dims.len() {
+            0 => {
                 let eval_val = self.init_val.generate(program, ctx)?;
                 if let ConstInitValResult::Int(val) = eval_val {
                     ctx.insert_symbol(&self.id.clone(), ASTValue::Const(val));
                 }
             }
-            Some(len) => {
+            _ => {
                 // let eval_val = self.init_val.generate(program, ctx)?;
                 // if let ConstInitValResult::Value(val) = eval_val {
                 //     ctx.insert_symbol(&self.id.clone(), ASTValue::Variable(val));
