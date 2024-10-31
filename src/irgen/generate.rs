@@ -329,6 +329,10 @@ impl InitVal {
                             current = current + 1;
                             //check curr
                             let res = sub.generate_init_val(program, ctx, &dims[current..])?;
+                            match res {
+                                InitValResult::List(mut list) => res_list.append(&mut list),
+                                InitValResult::Value(val) => res_list.push(val),
+                            }
                         }
                     }
                 }
