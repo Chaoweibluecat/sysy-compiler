@@ -167,8 +167,8 @@ impl GenerateProgram for VarDef {
                             //根据是否是数组,选择在ir中alloc i32还是数组
                             let mut ty = Type::get_i32();
                             for i in 0..len.len() {
-                                let init_val = &len[i];
-                                let parsed_len = init_val.eval(ctx)?;
+                                let len_i = &len[i];
+                                let parsed_len = len_i.eval(ctx)?;
                                 ty = Type::get_array(ty, parsed_len as usize);
                             }
                             let alloc = func_data.dfg_mut().new_value().alloc(ty);
@@ -186,7 +186,13 @@ impl GenerateProgram for VarDef {
                 match prev_def {
                     Some(_) => Err(Error::DuplicateDecl),
                     None => {
-                        let exp_val = init_val.generate(program, ctx)?;
+                        let dims: Result<Vec<i32>> = len
+                            .iter()
+                            .map(|exp| { exp.eval(ctx) })
+                            .collect();
+                        let dim_vec = dims?;
+                        let init_res = init_val.generate_init_val(program, ctx, &dim_vec)?;
+                        println!("{:?}", init_res);
                         let mut array_len: Option<i32> = None;
                         unimplemented!();
                         // let alloc = match len {
@@ -270,24 +276,58 @@ impl GenerateProgram for VarDef {
         }
     }
 }
-
+#[derive(Debug)]
 pub enum InitValResult {
     Value(Value),
     List(Vec<Value>),
 }
 
-impl GenerateProgram for InitVal {
-    type Out = InitValResult;
-    fn generate(&self, program: &mut Program, ctx: &mut Context) -> Result<Self::Out> {
+impl InitVal {
+    fn generate_init_val(
+        &self,
+        program: &mut Program,
+        ctx: &mut Context,
+        dims: &[i32]
+    ) -> Result<InitValResult> {
         match self {
             InitVal::Single(exp) => Ok(InitValResult::Value(exp.generate(program, ctx)?)),
             InitVal::List(list) => {
-                unimplemented!()
-                // let res: Result<Vec<Value>> = list
-                //     .iter()
-                //     .map(|exp| { exp.generate(program, ctx) })
-                //     .collect();
-                // Ok(InitValResult::List(res?))
+                let mut res_list = vec![];
+                let mut idx = 0;
+                let size: i32 = dims.iter().fold(1, |acc, &x| acc * x);
+                for sub in list {
+                    match sub {
+                        InitVal::Single(any) => {
+                            let res = sub.generate_init_val(program, ctx, dims)?;
+                            if let InitValResult::Value(val) = res {
+                                res_list.push(val);
+                                idx = idx + 1;
+                            } else {
+                                unreachable!();
+                            }
+                        }
+                        InitVal::List(list) => {
+                            if idx % dims[dims.len() - 1] != 0 {
+                                panic!("FuckedUp");
+                            }
+                            let min_dim = 1;
+                            let mut remain = idx;
+                            let mut current = dims.len() - 1;
+                            while remain % dims[current] == 0 && current >= min_dim {
+                                current = current - 1;
+                                remain = remain / dims[current];
+                            }
+                            current = current + 1;
+                            //check curr
+                            let res = sub.generate_init_val(program, ctx, &dims[current..])?;
+                        }
+                    }
+                }
+                while res_list.len() < (size as usize) {
+                    let zero = cur_func_mut(program, ctx).dfg_mut().new_value().integer(0);
+                    res_list.push(zero);
+                }
+                Ok(InitValResult::List(res_list))
             }
         }
     }
