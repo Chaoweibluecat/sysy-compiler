@@ -1,16 +1,17 @@
+use std::any::{ Any, TypeId };
+
 use super::{ eval::Eval, ASTValue, Error };
 use crate::{ ast::*, irgen::{ Context, Result } };
-use koopa::{
-    ir::{
-        builder::{ BasicBlockBuilder, GlobalInstBuilder, LocalInstBuilder, ValueBuilder },
-        layout::BasicBlockNode,
-        BasicBlock,
-        BinaryOp,
-        FunctionData,
-        Program,
-        Type,
-        Value,
-    },
+use koopa::ir::{
+    builder::{ BasicBlockBuilder, GlobalInstBuilder, LocalInstBuilder, ValueBuilder },
+    layout::BasicBlockNode,
+    BasicBlock,
+    BinaryOp,
+    FunctionData,
+    Program,
+    Type,
+    Value,
+    ValueKind,
 };
 pub trait GenerateProgram {
     type Out;
@@ -193,6 +194,14 @@ impl GenerateProgram for VarDef {
                         let dim_vec = dims?;
                         let init_res = init_val.generate_init_val(program, ctx, &dim_vec)?;
                         println!("{:?}", init_res);
+                        if let InitValResult::List(list) = init_res {
+                            for i in 0..list.len() {
+                                let va_data = cur_func_mut(program, ctx).dfg_mut().value(list[i]);
+                                if let ValueKind::Integer(int) = va_data.kind() {
+                                    println!("{}, {}", i, int.value());
+                                }
+                            }
+                        }
                         let mut array_len: Option<i32> = None;
                         unimplemented!();
                         // let alloc = match len {
