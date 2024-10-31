@@ -4,6 +4,7 @@ use super::{ eval::Eval, ASTValue, Error };
 use crate::{ ast::*, irgen::{ Context, Result } };
 use koopa::ir::{
     builder::{ BasicBlockBuilder, GlobalInstBuilder, LocalInstBuilder, ValueBuilder },
+    dfg,
     layout::BasicBlockNode,
     BasicBlock,
     BinaryOp,
@@ -202,6 +203,35 @@ impl GenerateProgram for VarDef {
                                 }
                             }
                         }
+                        let mut ty = Type::get_i32();
+                        let mut parsed_len_array = vec![];
+                        for i in 0..len.len() {
+                            let len_i = &len[i];
+                            let parsed_len = len_i.eval(ctx)?;
+                            parsed_len_array.push(parsed_len);
+                            ty = Type::get_array(ty, parsed_len as usize);
+                        }
+                        let alloc = cur_func_mut(program, ctx).dfg_mut().new_value().alloc(ty);
+
+                        let cur_idx_array: Vec<i32> = len
+                            .iter()
+                            .map(|_| { 0 })
+                            .collect();
+                        while cur_idx_array[0] < parsed_len_array[0] {
+                            inc(parsed_len_array, cur_idx_array);
+                        }
+                        let mut ptr = alloc;
+                        for i in 0..cur_idx_array.len() {
+                            let idx = cur_func_mut(program, ctx)
+                                .dfg_mut()
+                                .new_value()
+                                .integer(cur_idx_array[i]);
+                            ptr = cur_func_mut(program, ctx)
+                                .dfg_mut()
+                                .new_value()
+                                .get_elem_ptr(ptr, idx);
+                        }
+
                         let mut array_len: Option<i32> = None;
                         unimplemented!();
                         // let alloc = match len {
@@ -282,6 +312,23 @@ impl GenerateProgram for VarDef {
                     }
                 }
             }
+        }
+    }
+}
+
+fn inc(len: &mut Vec<i32>, idx: &mut Vec<i32>) -> bool {
+    let mut cur_idx = idx.len() - 1;
+    loop {
+        idx[cur_idx] = idx[cur_idx] + 1;
+        if idx[cur_idx] == len[cur_idx] {
+            idx[cur_idx] == 0;
+            if cur_idx == 0 {
+                return true;
+            } else {
+                cur_idx = cur_idx - 1;
+            }
+        } else {
+            return false;
         }
     }
 }
