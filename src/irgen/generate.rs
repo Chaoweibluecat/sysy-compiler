@@ -1,3 +1,4 @@
+use core::alloc;
 use std::any::{ Any, TypeId };
 
 use super::{ eval::Eval, ASTValue, Error };
@@ -11,6 +12,7 @@ use koopa::ir::{
     FunctionData,
     Program,
     Type,
+    TypeKind,
     Value,
     ValueKind,
 };
@@ -193,23 +195,60 @@ impl GenerateProgram for VarDef {
                             .map(|exp| { exp.eval(ctx) })
                             .collect();
                         let dim_vec = dims?;
+
                         let init_res = init_val.generate_init_val(program, ctx, &dim_vec)?;
+
+                        // 处理普通变量赋值
+                        if len.is_empty() {
+                            let alloc = cur_func_mut(program, ctx)
+                                .dfg_mut()
+                                .new_value()
+                                .alloc(Type::get_i32());
+                            if let InitValResult::Value(val) = init_res {
+                                let store = cur_func_mut(program, ctx)
+                                    .dfg_mut()
+                                    .new_value()
+                                    .store(val, alloc);
+                                push_back_values_as_ins(program, ctx, vec![alloc, store]);
+                                ctx.insert_symbol(
+                                    &format!("{}", id).to_owned(),
+                                    ASTValue::Variable(alloc)
+                                );
+                            }
+                            return Ok(());
+                        }
+
                         println!("{:?}", init_res);
 
+                        // 处理多维数组赋值
                         let mut ty = Type::get_i32();
                         let mut parsed_len_array = vec![];
+                        // let mut ptr_array = vec![];
+
                         for i in 0..len.len() {
-                            let len_i = &len[i];
+                            let len_i = &len[len.len() - 1 - i];
                             let parsed_len = len_i.eval(ctx)?;
-                            parsed_len_array.push(parsed_len);
+                            parsed_len_array.insert(0, parsed_len);
                             ty = Type::get_array(ty, parsed_len as usize);
                         }
                         let alloc = cur_func_mut(program, ctx).dfg_mut().new_value().alloc(ty);
 
+                        // todo: 优化getPtr
+                        // let mut prev = alloc;
+                        // for i in 0..parsed_len_array.len() {
+                        //     let zero = cur_func_mut(program, ctx).dfg_mut().new_value().integer(0);
+                        //     let prev = cur_func_mut(program, ctx)
+                        //         .dfg_mut()
+                        //         .new_value()
+                        //         .get_elem_ptr(prev, zero);
+                        //     ptr_array.insert(0, prev);
+                        // }
+                        push_back_value_as_ins(program, ctx, alloc)?;
                         let mut cur_idx_array: Vec<i32> = len
                             .iter()
                             .map(|_| { 0 })
                             .collect();
+                        // 每次inc一个多维数组的idx;直到赋值完所有
                         while cur_idx_array[0] < parsed_len_array[0] {
                             let mut ptr = alloc;
                             let mut ptrs = vec![];
@@ -234,6 +273,7 @@ impl GenerateProgram for VarDef {
                                 .store(init_res.get_index(idx as usize).clone(), ptr);
                             ptrs.push(store);
                             push_back_values_as_ins(program, ctx, ptrs);
+
                             inc(&mut parsed_len_array, &mut cur_idx_array);
                         }
                         ctx.insert_symbol(&format!("{}", id).to_owned(), ASTValue::Variable(alloc));
@@ -296,7 +336,7 @@ impl InitVal {
                                 unreachable!();
                             }
                         }
-                        InitVal::List(list) => {
+                        InitVal::List(_) => {
                             if idx % dims[dims.len() - 1] != 0 {
                                 panic!("FuckedUp");
                             }
