@@ -179,7 +179,7 @@ pub enum BType {
 #[derive(Debug)]
 pub struct LVal {
     pub id: String,
-    pub offset: Option<Box<Exp>>,
+    pub indices: Vec<Box<Exp>>,
 }
 
 #[derive(Debug)]

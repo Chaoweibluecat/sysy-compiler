@@ -247,9 +247,9 @@ PrimaryExp: PrimaryExp = {
 
 Number: i32 = <num: IntConst> => <>;
 LVal: LVal = {
-    <id: Ident> <len: ("[" <Exp> "]")?> => {
-        let length_box = len.map(|x| {Box::new(x)});
-        LVal{id, offset:length_box}
+    <id: Ident> <len: ("[" <Exp> "]")*> => {
+        let length_box = len.into_iter().map(|x| {Box::new(x)}).collect();
+        LVal{id, indices:length_box}
     }
 }
 

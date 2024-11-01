@@ -16,18 +16,104 @@ decl @stoptime()
 
 fun @main(): i32 {
 %entry:
-  @arr = alloc [i32, 5]
-  %0 = getelemptr @arr, 0
-  store 1, %0
-  %1 = getelemptr @arr, 1
-  store 2, %1
-  %2 = getelemptr @arr, 2
-  store 3, %2
-  %3 = getelemptr @arr, 3
-  store 0, %3
-  %4 = getelemptr @arr, 4
-  store 0, %4
-  %5 = getelemptr @arr, 2
-  %6 = load %5
-  ret %6
+  %0 = getelemptr %1, 0
+  %2 = getelemptr %0, 0
+  %3 = getelemptr %2, 0
+  store 1, %3
+  %4 = getelemptr %1, 0
+  %5 = getelemptr %4, 0
+  %6 = getelemptr %5, 1
+  store 2, %6
+  %7 = getelemptr %1, 0
+  %8 = getelemptr %7, 0
+  %9 = getelemptr %8, 2
+  store 3, %9
+  %10 = getelemptr %1, 0
+  %11 = getelemptr %10, 0
+  %12 = getelemptr %11, 3
+  store 4, %12
+  %13 = getelemptr %1, 0
+  %14 = getelemptr %13, 1
+  %15 = getelemptr %14, 0
+  store 5, %15
+  %16 = getelemptr %1, 0
+  %17 = getelemptr %16, 1
+  %18 = getelemptr %17, 1
+  store 0, %18
+  %19 = getelemptr %1, 0
+  %20 = getelemptr %19, 1
+  %21 = getelemptr %20, 2
+  store 0, %21
+  %22 = getelemptr %1, 0
+  %23 = getelemptr %22, 1
+  %24 = getelemptr %23, 3
+  store 0, %24
+  %25 = getelemptr %1, 0
+  %26 = getelemptr %25, 2
+  %27 = getelemptr %26, 0
+  store 6, %27
+  %28 = getelemptr %1, 0
+  %29 = getelemptr %28, 2
+  %30 = getelemptr %29, 1
+  store 0, %30
+  %31 = getelemptr %1, 0
+  %32 = getelemptr %31, 2
+  %33 = getelemptr %32, 2
+  store 0, %33
+  %34 = getelemptr %1, 0
+  %35 = getelemptr %34, 2
+  %36 = getelemptr %35, 3
+  store 0, %36
+  %37 = getelemptr %1, 1
+  %38 = getelemptr %37, 0
+  %39 = getelemptr %38, 0
+  store 7, %39
+  %40 = getelemptr %1, 1
+  %41 = getelemptr %40, 0
+  %42 = getelemptr %41, 1
+  store 8, %42
+  %43 = getelemptr %1, 1
+  %44 = getelemptr %43, 0
+  %45 = getelemptr %44, 2
+  store 0, %45
+  %46 = getelemptr %1, 1
+  %47 = getelemptr %46, 0
+  %48 = getelemptr %47, 3
+  store 0, %48
+  %49 = getelemptr %1, 1
+  %50 = getelemptr %49, 1
+  %51 = getelemptr %50, 0
+  store 0, %51
+  %52 = getelemptr %1, 1
+  %53 = getelemptr %52, 1
+  %54 = getelemptr %53, 1
+  store 0, %54
+  %55 = getelemptr %1, 1
+  %56 = getelemptr %55, 1
+  %57 = getelemptr %56, 2
+  store 0, %57
+  %58 = getelemptr %1, 1
+  %59 = getelemptr %58, 1
+  %60 = getelemptr %59, 3
+  store 0, %60
+  %61 = getelemptr %1, 1
+  %62 = getelemptr %61, 2
+  %63 = getelemptr %62, 0
+  store 0, %63
+  %64 = getelemptr %1, 1
+  %65 = getelemptr %64, 2
+  %66 = getelemptr %65, 1
+  store 0, %66
+  %67 = getelemptr %1, 1
+  %68 = getelemptr %67, 2
+  %69 = getelemptr %68, 2
+  store 0, %69
+  %70 = getelemptr %1, 1
+  %71 = getelemptr %70, 2
+  %72 = getelemptr %71, 3
+  store 0, %72
+  %73 = getelemptr %1, 1
+  %74 = getelemptr %73, 2
+  %75 = load %74
+  ret %75
 }
