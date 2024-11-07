@@ -3,18 +3,21 @@ use std::any::{ Any, TypeId };
 
 use super::{ eval::Eval, ASTValue, Error };
 use crate::{ ast::*, irgen::{ Context, Result } };
-use koopa::ir::{
-    builder::{ BasicBlockBuilder, GlobalInstBuilder, LocalInstBuilder, ValueBuilder },
-    dfg,
-    layout::BasicBlockNode,
-    BasicBlock,
-    BinaryOp,
-    FunctionData,
-    Program,
-    Type,
-    TypeKind,
-    Value,
-    ValueKind,
+use koopa::{
+    front::ast::Aggregate,
+    ir::{
+        builder::{ BasicBlockBuilder, GlobalInstBuilder, LocalInstBuilder, ValueBuilder },
+        dfg,
+        layout::BasicBlockNode,
+        BasicBlock,
+        BinaryOp,
+        FunctionData,
+        Program,
+        Type,
+        TypeKind,
+        Value,
+        ValueKind,
+    },
 };
 pub trait GenerateProgram {
     type Out;
@@ -191,6 +194,7 @@ impl GenerateProgram for VarDef {
                     }
                 }
             }
+
             VarDef::Assign(id, len, init_val) => {
                 let prev_def = ctx.look_up_in_curr_scope(id);
                 match prev_def {
@@ -201,22 +205,37 @@ impl GenerateProgram for VarDef {
                             .map(|exp| { exp.eval(ctx) })
                             .collect();
                         let dim_vec = dims?;
+
                         if ctx.in_global_scope() {
-                            let mut ty = Type::get_i32();
-                            for i in 0..len.len() {
-                                let len_i = &len[i];
-                                let parsed_len = len_i.eval(ctx)?;
-                                ty = Type::get_array(ty, parsed_len as usize);
-                            }
-
-                            let init = init_val.generate_init_val(program, ctx, dims);
-
+                            let parsed_init_val = init_val.generate_init_val(
+                                program,
+                                ctx,
+                                &dim_vec,
+                                0
+                            )?;
+                            let init = if len.is_empty() {
+                                if let InitValResult::Value(val) = parsed_init_val {
+                                    val
+                                } else {
+                                    unreachable!();
+                                }
+                            } else {
+                                if let InitValResult::List(list) = parsed_init_val {
+                                    program.new_value().aggregate(list)
+                                } else {
+                                    unreachable!();
+                                }
+                            };
                             let alloc = program.new_value().global_alloc(init);
                             program.set_value_name(alloc, Some(format!("@{}", id)));
+                            ctx.insert_symbol(
+                                &format!("{}", id).to_owned(),
+                                ASTValue::Variable(alloc)
+                            );
+                            return Ok(());
                         }
 
-                        let init_res = init_val.generate_init_val(program, ctx, &dim_vec)?;
-
+                        let init_res = init_val.generate_init_val(program, ctx, &dim_vec, 0)?;
                         // 处理普通变量赋值
                         if len.is_empty() {
                             let alloc = cur_func_mut(program, ctx)
@@ -233,6 +252,8 @@ impl GenerateProgram for VarDef {
                                     &format!("{}", id).to_owned(),
                                     ASTValue::Variable(alloc)
                                 );
+                            } else {
+                                unreachable!();
                             }
                             return Ok(());
                         }
@@ -325,9 +346,8 @@ fn inc(len: &mut Vec<i32>, idx: &mut Vec<i32>) -> bool {
 pub enum InitValResult {
     Value(Value),
     List(Vec<Value>),
-    ConstVal(i32),
-    ConstList(Vec<i32>),
 }
+
 impl InitValResult {
     fn get_index(&self, idx: usize) -> Value {
         if let InitValResult::List(list) = self { list[idx] } else { unreachable!() }
@@ -339,101 +359,60 @@ impl InitVal {
         &self,
         program: &mut Program,
         ctx: &mut Context,
-        dims: &[i32]
+        dims: &[i32],
+        cur_idx: i32
     ) -> Result<InitValResult> {
+        let mut idx = cur_idx;
         match self {
             InitVal::Single(exp) =>
                 Ok(
                     if ctx.in_global_scope() {
-                        InitValResult::ConstVal(exp.eval(ctx)?)
+                        let res = exp.eval(ctx)?;
+                        InitValResult::Value(program.new_value().integer(res))
                     } else {
                         InitValResult::Value(exp.generate(program, ctx)?)
                     }
                 ),
             InitVal::List(list) => {
-                if ctx.in_global_scope() {
-                    let mut res_list = vec![];
-                    let mut idx = 0;
-                    let size: i32 = dims.iter().fold(1, |acc, &x| acc * x);
-                    for sub in list {
-                        match sub {
-                            InitVal::Single(any) => {
-                                let res = sub.generate_init_val(program, ctx, dims)?;
-                                if let InitValResult::ConstVal(val) = res {
-                                    res_list.push(val);
-                                    idx = idx + 1;
-                                } else {
-                                    unreachable!();
-                                }
-                            }
-                            InitVal::List(_) => {
-                                if idx % dims[dims.len() - 1] != 0 {
-                                    panic!("FuckedUp");
-                                }
-                                let min_dim = 1;
-                                let mut remain = idx;
-                                let mut current = dims.len() - 1;
-                                while remain % dims[current] == 0 && current >= min_dim {
-                                    current = current - 1;
-                                    remain = remain / dims[current];
-                                }
-                                current = current + 1;
-                                //check curr
-                                let res = sub.generate_init_val(program, ctx, &dims[current..])?;
-                                match res {
-                                    InitValResult::ConstList(mut list) =>
-                                        res_list.append(&mut list),
-                                    _ => unreachable!(),
-                                }
-                            }
-                        }
-                    }
-                    while res_list.len() < (size as usize) {
-                        res_list.push(0);
-                    }
-                    Ok(InitValResult::ConstList(res_list))
-                } else {
-                    let mut res_list = vec![];
-                    let mut idx = 0;
-                    let size: i32 = dims.iter().fold(1, |acc, &x| acc * x);
-                    for sub in list {
-                        match sub {
-                            InitVal::Single(any) => {
-                                let res = sub.generate_init_val(program, ctx, dims)?;
-                                if let InitValResult::Value(val) = res {
-                                    res_list.push(val);
-                                    idx = idx + 1;
-                                } else {
-                                    unreachable!();
-                                }
-                            }
-                            InitVal::List(_) => {
-                                if idx % dims[dims.len() - 1] != 0 {
-                                    panic!("FuckedUp");
-                                }
-                                let min_dim = 1;
-                                let mut remain = idx;
-                                let mut current = dims.len() - 1;
-                                while remain % dims[current] == 0 && current >= min_dim {
-                                    current = current - 1;
-                                    remain = remain / dims[current];
-                                }
-                                current = current + 1;
-                                //check curr
-                                let res = sub.generate_init_val(program, ctx, &dims[current..])?;
-                                match res {
-                                    InitValResult::List(mut list) => res_list.append(&mut list),
-                                    _ => unreachable!(),
-                                }
-                            }
-                        }
-                    }
-                    while res_list.len() < (size as usize) {
-                        let zero = cur_func_mut(program, ctx).dfg_mut().new_value().integer(0);
-                        res_list.push(zero);
-                    }
-                    Ok(InitValResult::List(res_list))
+                let size: i32 = dims.iter().fold(1, |acc, &x| acc * x);
+                if idx % dims[dims.len() - 1] != 0 || idx >= size {
+                    panic!("FuckedUp");
                 }
+                let mut res: Vec<Value> = vec![];
+                for sub in list {
+                    let mut remain = idx;
+                    // 从数组最后一列开始,向前整除,看看当前状态下,如果生成list,那么对齐的是哪一维
+                    // int[2][3][4] {1, 2, 3, 4, {5}} ,idx = 4,对应int[4]
+                    // int[2][3][4] {1, 2, 3, 4, 1, 2, 3, 4, 1, 2, 3, 4, {5}}, idx=12,对应 int[3][4]
+                    // int[2][3][4] {{5}} ,idx = 0,对应 int[3][4]
+                    let mut current = dims.len() - 1;
+                    while remain % dims[current] == 0 && current >= 1 {
+                        current = current - 1;
+                        remain = remain / dims[current];
+                    }
+                    current = current + 1;
+                    let sub_res = sub.generate_init_val(program, ctx, &dims[current..], cur_idx)?;
+                    match sub_res {
+                        InitValResult::List(mut sub_list) => {
+                            res.append(&mut sub_list);
+                            idx = idx + (sub_list.len() as i32);
+                        }
+                        InitValResult::Value(val) => {
+                            res.push(val);
+                            idx = idx + 1;
+                        }
+                    }
+                }
+                // 补零
+                let zero = if ctx.in_global_scope() {
+                    program.new_value().integer(0)
+                } else {
+                    cur_func_mut(program, ctx).dfg_mut().new_value().integer(0)
+                };
+                while res.len() < (size as usize) {
+                    res.push(zero);
+                }
+                Ok(InitValResult::List(res))
             }
         }
     }

@@ -1,6 +1,7 @@
 use asmgen::generate_asm;
 use irgen::generate_program;
 use koopa::back::KoopaGenerator;
+use koopa::ir::Type;
 use lalrpop_util::lalrpop_mod;
 use std::fs::read_to_string;
 use std::io::Result;
@@ -13,8 +14,9 @@ mod irgen;
 lalrpop_mod!(sysy);
 
 fn main() -> Result<()> {
+    Type::set_ptr_size(4);
     let input = "hello.c";
-    let mode = "-koopa".to_owned();
+    let mode = "-123".to_owned();
     let output = "hello.koopa";
     let output_2 = "hello.asm";
 

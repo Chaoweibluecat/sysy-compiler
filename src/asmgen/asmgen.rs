@@ -1,9 +1,9 @@
-use super::{FunctionInfo, InsData};
+use super::{ FunctionInfo, InsData };
 use crate::asmgen::Context;
-use crate::irgen::{Error, Result};
+use crate::irgen::{ Error, Result };
 use koopa::ir::entities::ValueData;
-use koopa::ir::{BasicBlock, BinaryOp, FunctionData, Value, ValueKind};
-use std::{fs::File, io::Write};
+use koopa::ir::{ BasicBlock, BinaryOp, FunctionData, Value, ValueKind };
+use std::{ fs::File, io::Write };
 // koopa IR => ASM
 pub trait GenerateAsm {
     fn generate(&self, file: &mut File, ctx: &mut Context) -> Result<Self::Out>;
@@ -55,11 +55,7 @@ impl GenerateAsm for koopa::ir::FunctionData {
         let name = self.name()[1..].to_string();
         writeln!(file, "{}:", name);
         ctx.alloc_on_stack(self);
-        writeln!(
-            file,
-            "  addi  sp, sp, -{}",
-            ctx.cur_func_info.as_ref().unwrap().stack_allocation
-        );
+        writeln!(file, "  addi  sp, sp, -{}", ctx.cur_func_info.as_ref().unwrap().stack_allocation);
 
         if !ctx.cur_func_info.as_ref().unwrap().is_leaf_func {
             writeln!(
@@ -121,6 +117,8 @@ impl GenerateAsm for koopa::ir::entities::ValueData {
                 //
             }
 
+            // getPtr的偏移,因为数组下标可能是表达式,编译期间无法确定,所以还是需要用乘法指令算出偏移
+            ValueKind::GetElemPtr(ptr) => { ptr.generate(file, ctx) }
             ValueKind::Return(ret) => {
                 if let Some(value) = ret.value() {
                     let res_val = value.generate(ctx)?;
@@ -175,10 +173,17 @@ impl GenerateAsm for koopa::ir::entities::ValueData {
                     InsData::Reg(reg) => reg,
                     _ => unimplemented!(),
                 };
-
-                if let InsData::StackSlot(offset) = store.dest().generate(ctx)? {
-                    writeln!(file, "  sw    {}, {}(sp)", left_reg, offset);
+                match store.dest().generate(ctx)? {
+                    InsData::StackSlot(offset) => {
+                        writeln!(file, "  sw    {}, {}(sp)", left_reg, offset);
+                    }
+                    InsData::Ptr(ptr) => {
+                        writeln!(file, "  lw    t1, {}(sp)", ptr);
+                        writeln!(file, "  sw    {}, 0(t1)", left_reg);
+                    }
+                    _ => unreachable!(),
                 }
+
                 Ok(())
             }
 
@@ -192,6 +197,11 @@ impl GenerateAsm for koopa::ir::entities::ValueData {
                     }
                     InsData::GlobalVar(name) => {
                         writeln!(file, "  la    t0, {}", name);
+                        writeln!(file, "  lw    t0, 0(t0)");
+                    }
+                    InsData::Ptr(val) => {
+                        writeln!(file, "  lw    t0, {}(sp)", val);
+                        writeln!(file, "  add   t0, t0, sp");
                         writeln!(file, "  lw    t0, 0(t0)");
                     }
                     _ => unreachable!(),
@@ -301,14 +311,7 @@ impl GenerateAsm for koopa::ir::values::Branch {
         }
         let true_bb = self.true_bb();
         let false_bb = self.false_bb();
-        let mut true_block_name = ctx
-            .cur_func()
-            .dfg()
-            .bb(true_bb)
-            .name()
-            .as_ref()
-            .unwrap()
-            .clone();
+        let mut true_block_name = ctx.cur_func().dfg().bb(true_bb).name().as_ref().unwrap().clone();
         let true_label_name = ctx.register_label(true_bb, label_name(true_block_name));
         writeln!(file, "  bnez {}, {}", "t0", true_label_name);
 
@@ -335,12 +338,53 @@ impl GenerateAsm for koopa::ir::values::Jump {
             let target_block_name: &Option<String> = func_data.dfg().bb(self.target()).name();
             ctx.register_label(
                 self.target(),
-                label_name(target_block_name.as_ref().unwrap().clone()),
+                label_name(target_block_name.as_ref().unwrap().clone())
             )
         } else {
             ctx.look_up_label(self.target()).unwrap()
         };
         writeln!(file, "  j {}", label_name);
+        Ok(())
+    }
+}
+
+impl GenerateAsm for koopa::ir::values::GetElemPtr {
+    type Out = ();
+    fn generate(&self, file: &mut File, ctx: &mut Context) -> Result<Self::Out> {
+        /*
+        addi t0, sp, 4
+    # 计算 getelemptr 的偏移量
+     li t1, 1
+    li t2, 4
+    mul t1, t1, t2
+    # 计算 getelemptr 的结果
+     add t0, t0, t1
+         */
+        let src_address = self.src().generate(ctx)?;
+
+        // 读取Src的地址,写到t0寄存器
+        match src_address {
+            // alloc变量
+            InsData::StackSlot(offset) => {
+                writeln!(file, "li ,  t0 , {}", offset);
+            }
+            //别的指针
+            InsData::Ptr(ptr_stack_offset) => {
+                writeln!(file, "lw ,  t0 , {}(sp)", ptr_stack_offset);
+                writeln!(file, "addi t0, sp, t0");
+            }
+            _ => unreachable!(),
+        }
+
+        self.index().generate(ctx)?.write_to(file, &"t1".to_string());
+
+        // todo 修改4
+        writeln!(file, "sw ,  t2 , {}", 4);
+        writeln!(file, "mul t1, t1, t2");
+        writeln!(file, "add t0, t0, t1");
+
+        let dst = ctx.find_value_stack_offset(ctx.cur_value.unwrap())?;
+        writeln!(file, "sw , t0, {}", dst);
         Ok(())
     }
 }
@@ -369,9 +413,9 @@ impl<'a> GenerateInsData<'a> for koopa::ir::Value {
                 }
             }
             // global_alloc在此前分支中返回
-            ValueKind::GlobalAlloc(_) => {
-                unreachable!()
-            }
+            ValueKind::GlobalAlloc(_) => { unreachable!() }
+            // 否则返回自身在栈上的偏移量
+            ValueKind::GetElemPtr(_) => { Ok(InsData::Ptr(ctx.find_value_stack_offset(*self)?)) }
             _ => Ok(InsData::StackSlot(ctx.find_value_stack_offset(*self)?)),
         }
     }
@@ -382,7 +426,7 @@ pub fn generate_op_asm(
     binary_op: BinaryOp,
     left: &String,
     right: &String,
-    result: &String,
+    result: &String
 ) {
     match binary_op {
         BinaryOp::Sub => {
@@ -466,11 +510,12 @@ impl<'a> Context<'a> {
 
         for (_, bbd) in func_data.layout().bbs().iter() {
             for (&val, _) in bbd.insts() {
+                let value_data = func_data.dfg().value(val);
                 // 本条指令需要分配内存,则为返回值
-                if self.need_alloc(func_data.dfg().value(val)) {
+                if self.need_alloc(value_data) {
                     self.value_2_stack_offset.insert(val, offset as i32);
                     println!("alloc value {:#?} at {}", val, offset);
-                    offset += 4;
+                    offset += value_data.ty().size();
                 } else {
                     println!("no alloc for value {:#?} ", val);
                 }
@@ -495,10 +540,7 @@ impl<'a> Context<'a> {
 
     fn find_value_stack_offset(&self, value: Value) -> Result<i32> {
         println!("look ip value {:#?}", value.clone());
-        self.value_2_stack_offset
-            .get(&value)
-            .ok_or(Error::SysError)
-            .cloned()
+        self.value_2_stack_offset.get(&value).ok_or(Error::SysError).cloned()
     }
 
     // 我们让对functiondata的变量往往是作为临时变量存在；如果函数中一直存在这个引用，那么相当于一直有program的引用
@@ -538,4 +580,31 @@ fn label_name(str: String) -> String {
 
 fn label_name_1(str: &String) -> String {
     str[1..].to_string()
+}
+
+impl<'a> InsData<'a> {
+    fn write_to(&self, file: &mut File, dst_reg: &String) {
+        match self {
+            InsData::StackSlot(offset) => {
+                writeln!(file, "  lw ,  {} , {}(sp)", dst_reg, offset);
+            }
+            InsData::Reg(reg) => {
+                if reg != dst_reg {
+                    writeln!(file, "  lw , {}, {}", dst_reg, reg);
+                }
+            }
+            InsData::GlobalVar(name) => {
+                writeln!(file, "  la    {}, {}", dst_reg, name);
+                writeln!(file, "  lw    {}, 0({})", dst_reg, dst_reg);
+            }
+            InsData::Int(int) => {
+                writeln!(file, "  li    {}, {}", dst_reg, int);
+            }
+            InsData::Ptr(ptr) => {
+                writeln!(file, "  lw ,  {} , {}(sp)", dst_reg, ptr);
+                writeln!(file, "  add  {}, sp, {}", dst_reg, dst_reg);
+                writeln!(file, "  lw ,  {} , 0({})", dst_reg, dst_reg);
+            }
+        }
+    }
 }

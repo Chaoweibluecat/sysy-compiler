@@ -167,6 +167,9 @@ impl Eval for PrimaryExp {
             PrimaryExp::Number(num) => Ok(*num),
             PrimaryExp::LVal(lval) => {
                 let val_op = ctx.look_up_symbol(&lval.id);
+                if lval.indices.is_empty() {
+                    return Err(super::Error::VariableEvalAtCompileTime);
+                }
                 match val_op {
                     None => Err(super::Error::UnknownSymbol),
                     Some(ASTValue::Const(val)) => Ok(*val),
