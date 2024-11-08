@@ -2,7 +2,7 @@ use super::{ FunctionInfo, InsData };
 use crate::asmgen::Context;
 use crate::irgen::{ Error, Result };
 use koopa::ir::entities::ValueData;
-use koopa::ir::{ BasicBlock, BinaryOp, FunctionData, Value, ValueKind };
+use koopa::ir::{ BasicBlock, BinaryOp, FunctionData, TypeKind, Value, ValueKind };
 use std::{ fs::File, io::Write };
 // koopa IR => ASM
 pub trait GenerateAsm {
@@ -366,25 +366,29 @@ impl GenerateAsm for koopa::ir::values::GetElemPtr {
         match src_address {
             // alloc变量
             InsData::StackSlot(offset) => {
-                writeln!(file, "li ,  t0 , {}", offset);
+                writeln!(file, "  li   t0 , {}", offset);
             }
             //别的指针
             InsData::Ptr(ptr_stack_offset) => {
-                writeln!(file, "lw ,  t0 , {}(sp)", ptr_stack_offset);
-                writeln!(file, "addi t0, sp, t0");
+                writeln!(file, "  lw   t0 , {}(sp)", ptr_stack_offset);
+                writeln!(file, "  addi t0, sp, t0");
             }
             _ => unreachable!(),
         }
 
         self.index().generate(ctx)?.write_to(file, &"t1".to_string());
 
-        // todo 修改4
-        writeln!(file, "sw ,  t2 , {}", 4);
-        writeln!(file, "mul t1, t1, t2");
-        writeln!(file, "add t0, t0, t1");
+        let cur_value = ctx.cur_func().dfg().value(ctx.cur_value.unwrap());
+        let size = match cur_value.ty().kind() {
+            TypeKind::Pointer(base) => base.size(),
+            _ => unreachable!(),
+        };
+        writeln!(file, "  li   t2 , {}", size);
+        writeln!(file, "  mul t1, t1, t2");
+        writeln!(file, "  add t0, t0, t1");
 
         let dst = ctx.find_value_stack_offset(ctx.cur_value.unwrap())?;
-        writeln!(file, "sw , t0, {}", dst);
+        writeln!(file, "  sw  t0, {}(sp)", dst);
         Ok(())
     }
 }
