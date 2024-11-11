@@ -1,11 +1,11 @@
 
 
 // int arr[2][3][4] = {1, 2, 3, 4, {5}, {6}, {7, 8}};
-// int arr1[1] = {1};
+int arr1[1] = {1};
 
 int main() {
-    int array[1] = {1};
-    return array[0];
+    arr1[0] = 0;
+    return 1;
 }
 
 // int main() {

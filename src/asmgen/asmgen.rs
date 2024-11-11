@@ -83,25 +83,45 @@ impl GenerateAsm for koopa::ir::FunctionData {
         Ok(())
     }
 }
-
+impl GenerateAsm for koopa::ir::values::Aggregate {
+    type Out = ();
+    fn generate(&self, file: &mut File, ctx: &mut Context) -> Result<Self::Out> {
+        for ele in self.elems() {
+            let sub_value = ctx.prog.borrow_value(*ele);
+            match sub_value.kind() {
+                ValueKind::Integer(int) => {
+                    writeln!(file, "  .word {}", int.value());
+                }
+                ValueKind::Aggregate(agg) => {
+                    agg.generate(file, ctx);
+                }
+                _ => unreachable!(),
+            }
+        }
+        Ok(())
+    }
+}
 impl GenerateAsm for koopa::ir::entities::ValueData {
     type Out = ();
     fn generate(&self, file: &mut File, ctx: &mut Context) -> Result<Self::Out> {
         match self.kind() {
             ValueKind::GlobalAlloc(global_alloc) => {
                 let value = ctx.cur_value.unwrap();
-                let borrowed_value = ctx.prog.borrow_value(value);
-                if let Some(global_name) = borrowed_value.name().as_ref() {
+                let value_data = ctx.prog.borrow_value(value);
+                if let Some(global_name) = value_data.name().as_ref() {
                     let var_name = global_name[1..].to_string();
                     writeln!(file, "  .globl {}", var_name);
                     writeln!(file, "{}:", var_name);
                     let init = ctx.prog.borrow_value(global_alloc.init());
                     match init.kind() {
                         ValueKind::ZeroInit(_) => {
-                            writeln!(file, "  .zero 4");
+                            writeln!(file, "  .zero {}", value_data.ty().size());
                         }
                         ValueKind::Integer(int) => {
                             writeln!(file, "  .word {}", int.value());
+                        }
+                        ValueKind::Aggregate(agg) => {
+                            agg.generate(file, ctx);
                         }
                         _ => unreachable!(),
                     }
@@ -364,7 +384,7 @@ impl GenerateAsm for koopa::ir::values::GetElemPtr {
      add t0, t0, t1
          */
 
-        // 读取Src的地址,写到t0寄存器
+        // 读取Src的地址,写到t0寄存器(基址)
         let src_address = self.src().generate(ctx)?;
         if let InsData::StackSlot(offset) = src_address {
             if ctx.is_ptr(ctx.cur_value.unwrap()) {
@@ -373,6 +393,8 @@ impl GenerateAsm for koopa::ir::values::GetElemPtr {
             } else {
                 writeln!(file, "  li   t0 , {}", offset);
             }
+        } else if let InsData::GlobalVar(name) = src_address {
+            writeln!(file, "  la    t0, {}", name);
         }
 
         self.index().generate(ctx)?.write_to(file, &"t1".to_string());
