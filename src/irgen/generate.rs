@@ -200,11 +200,11 @@ impl GenerateProgram for VarDef {
                 match prev_def {
                     Some(_) => Err(Error::DuplicateDecl),
                     None => {
-                        let dims: Result<Vec<i32>> = len
+                        let dims_result: Result<Vec<i32>> = len
                             .iter()
                             .map(|exp| { exp.eval(ctx) })
                             .collect();
-                        let dim_vec = dims?;
+                        let dim_vec = dims_result?;
 
                         if ctx.in_global_scope() {
                             let parsed_init_val = init_val.generate_init_val(
@@ -220,8 +220,30 @@ impl GenerateProgram for VarDef {
                                     unreachable!();
                                 }
                             } else {
+                                // 初始化list, folden flattened list
                                 if let InitValResult::List(list) = parsed_init_val {
-                                    program.new_value().aggregate(list)
+                                    let mut part_list = list;
+                                    let mut cur_agg;
+                                    let mut cur_idx = dim_vec.len() - 1;
+                                    while cur_idx > 0 {
+                                        let mut res_list = vec![];
+                                        cur_agg = vec![];
+                                        for i in 0..part_list.len() {
+                                            cur_agg.push(part_list[i]);
+                                            if
+                                                (i as i32) % dim_vec[cur_idx] ==
+                                                dim_vec[cur_idx] - 1
+                                            {
+                                                res_list.push(
+                                                    program.new_value().aggregate(cur_agg)
+                                                );
+                                                cur_agg = vec![];
+                                            }
+                                        }
+                                        cur_idx = cur_idx - 1;
+                                        part_list = res_list;
+                                    }
+                                    program.new_value().aggregate(part_list)
                                 } else {
                                     unreachable!();
                                 }

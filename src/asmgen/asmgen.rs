@@ -2,7 +2,8 @@ use super::{ FunctionInfo, InsData };
 use crate::asmgen::Context;
 use crate::irgen::{ Error, Result };
 use koopa::ir::entities::ValueData;
-use koopa::ir::{ BasicBlock, BinaryOp, FunctionData, TypeKind, Value, ValueKind };
+use koopa::ir::{ BasicBlock, BinaryOp, FunctionData, Type, TypeKind, Value, ValueKind };
+use std::ops::Deref;
 use std::{ fs::File, io::Write };
 // koopa IR => ASM
 pub trait GenerateAsm {
@@ -145,7 +146,6 @@ impl GenerateAsm for koopa::ir::entities::ValueData {
                     "  addi  sp, sp,  {}",
                     ctx.cur_func_info.as_ref().unwrap().stack_allocation
                 );
-
                 writeln!(file, "  ret");
                 Ok(())
             }
@@ -175,11 +175,13 @@ impl GenerateAsm for koopa::ir::entities::ValueData {
                 };
                 match store.dest().generate(ctx)? {
                     InsData::StackSlot(offset) => {
-                        writeln!(file, "  sw    {}, {}(sp)", left_reg, offset);
-                    }
-                    InsData::Ptr(ptr) => {
-                        writeln!(file, "  lw    t1, {}(sp)", ptr);
-                        writeln!(file, "  sw    {}, 0(t1)", left_reg);
+                        if ctx.is_ptr(store.dest()) {
+                            writeln!(file, "  lw    t0, {}(sp)", offset);
+                            writeln!(file, "  addi  t0, sp, t0");
+                            writeln!(file, "  sw    {}, 0(t0)", left_reg);
+                        } else {
+                            writeln!(file, "  sw    {}, {}(sp)", left_reg, offset);
+                        }
                     }
                     _ => unreachable!(),
                 }
@@ -193,15 +195,16 @@ impl GenerateAsm for koopa::ir::entities::ValueData {
             ValueKind::Load(load) => {
                 match load.src().generate(ctx)? {
                     InsData::StackSlot(offset) => {
-                        writeln!(file, "  lw    t0, {}(sp)", offset);
+                        if ctx.is_ptr(load.src()) {
+                            writeln!(file, "  lw    t0, {}(sp)", offset);
+                            writeln!(file, "  add   t0, t0, sp");
+                            writeln!(file, "  lw    t0, 0(t0)");
+                        } else {
+                            writeln!(file, "  lw    t0, {}(sp)", offset);
+                        }
                     }
                     InsData::GlobalVar(name) => {
                         writeln!(file, "  la    t0, {}", name);
-                        writeln!(file, "  lw    t0, 0(t0)");
-                    }
-                    InsData::Ptr(val) => {
-                        writeln!(file, "  lw    t0, {}(sp)", val);
-                        writeln!(file, "  add   t0, t0, sp");
                         writeln!(file, "  lw    t0, 0(t0)");
                     }
                     _ => unreachable!(),
@@ -360,20 +363,16 @@ impl GenerateAsm for koopa::ir::values::GetElemPtr {
     # 计算 getelemptr 的结果
      add t0, t0, t1
          */
-        let src_address = self.src().generate(ctx)?;
 
         // 读取Src的地址,写到t0寄存器
-        match src_address {
-            // alloc变量
-            InsData::StackSlot(offset) => {
+        let src_address = self.src().generate(ctx)?;
+        if let InsData::StackSlot(offset) = src_address {
+            if ctx.is_ptr(ctx.cur_value.unwrap()) {
+                writeln!(file, "  lw   t0 , {}(sp)", offset);
+                writeln!(file, "  add t0, sp, t0");
+            } else {
                 writeln!(file, "  li   t0 , {}", offset);
             }
-            //别的指针
-            InsData::Ptr(ptr_stack_offset) => {
-                writeln!(file, "  lw   t0 , {}(sp)", ptr_stack_offset);
-                writeln!(file, "  addi t0, sp, t0");
-            }
-            _ => unreachable!(),
         }
 
         self.index().generate(ctx)?.write_to(file, &"t1".to_string());
@@ -419,7 +418,6 @@ impl<'a> GenerateInsData<'a> for koopa::ir::Value {
             // global_alloc在此前分支中返回
             ValueKind::GlobalAlloc(_) => { unreachable!() }
             // 否则返回自身在栈上的偏移量
-            ValueKind::GetElemPtr(_) => { Ok(InsData::Ptr(ctx.find_value_stack_offset(*self)?)) }
             _ => Ok(InsData::StackSlot(ctx.find_value_stack_offset(*self)?)),
         }
     }
@@ -485,6 +483,21 @@ pub fn generate_op_asm(
 }
 
 impl<'a> Context<'a> {
+    fn is_ptr(&self, value: Value) -> bool {
+        if self.is_global_value(&value) {
+            let value_data = self.prog.borrow_value(value);
+            return (
+                matches!(value_data.ty().kind(), TypeKind::Pointer(_)) &&
+                !matches!(value_data.kind(), ValueKind::Alloc(_))
+            );
+        } else {
+            let value_data = self.cur_func().dfg().value(value);
+            return (
+                matches!(value_data.ty().kind(), TypeKind::Pointer(_)) &&
+                !matches!(value_data.kind(), ValueKind::Alloc(_))
+            );
+        }
+    }
     fn is_global_value(&self, value: &Value) -> bool {
         self.global_value_to_data_name.get(value).is_some()
     }
@@ -603,11 +616,6 @@ impl<'a> InsData<'a> {
             }
             InsData::Int(int) => {
                 writeln!(file, "  li    {}, {}", dst_reg, int);
-            }
-            InsData::Ptr(ptr) => {
-                writeln!(file, "  lw ,  {} , {}(sp)", dst_reg, ptr);
-                writeln!(file, "  add  {}, sp, {}", dst_reg, dst_reg);
-                writeln!(file, "  lw ,  {} , 0({})", dst_reg, dst_reg);
             }
         }
     }

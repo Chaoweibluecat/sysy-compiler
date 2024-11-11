@@ -16,15 +16,10 @@ decl @stoptime()
 
 fun @main(): i32 {
 %entry:
-  %0 = alloc [[i32, 2], 1]
+  %0 = alloc [i32, 1]
   %1 = getelemptr %0, 0
-  %2 = getelemptr %1, 0
-  store 1, %2
-  %3 = getelemptr %0, 0
-  %4 = getelemptr %3, 1
-  store 2, %4
-  %5 = getelemptr %0, 0
-  %6 = getelemptr %5, 1
-  %7 = load %6
-  ret %7
+  store 1, %1
+  %2 = getelemptr %0, 0
+  %3 = load %2
+  ret %3
 }

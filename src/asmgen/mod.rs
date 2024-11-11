@@ -27,7 +27,6 @@ pub enum InsData<'a> {
     Reg(String),
     GlobalVar(&'a str),
     // 本身的内容是一个指针记录栈上的偏移量,返回的I32是指针本身在栈上存储的位置
-    Ptr(i32),
 }
 /// Generates the given Koopa IR program to RISC-V assembly.
 pub fn generate_asm(program: &Program, path: &str) -> Result<()> {
