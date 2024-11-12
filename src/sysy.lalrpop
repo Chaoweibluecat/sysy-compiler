@@ -44,7 +44,13 @@ FuncFParams: Vec<FuncFParam> = {
 }
 
 FuncFParam: FuncFParam = {
-    <b_type: BType> <name: Ident>  => FuncFParam{<>}
+    <b_type: BType> <name: Ident> <array_indices: (ArrayIndices)?> =>  {
+        FuncFParam{<>}
+    }
+}
+
+ArrayIndices: Vec<ConstExp> =  {
+    "[" "]" <exps: ("[" <ConstExp> "]")*> => exps,
 }
 
 FuncType: FuncType = {

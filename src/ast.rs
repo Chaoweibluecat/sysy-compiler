@@ -112,6 +112,7 @@ pub struct FuncDef {
 pub struct FuncFParam {
     pub b_type: BType,
     pub name: String,
+    pub array_indices: Option<Vec<ConstExp>>,
 }
 
 #[derive(Debug)]
