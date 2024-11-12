@@ -1,7 +1,7 @@
 use core::alloc;
 use std::any::{ Any, TypeId };
 
-use super::{ eval::Eval, ASTValue, Error };
+use super::{ eval::{ self, Eval }, ASTValue, Error };
 use crate::{ ast::*, irgen::{ Context, Result } };
 use koopa::{
     front::ast::Aggregate,
@@ -48,6 +48,25 @@ impl GenerateProgram for GlobalItem {
     }
 }
 
+impl GenerateProgram for FuncFParam {
+    type Out = (Option<String>, Type);
+    fn generate(&self, program: &mut Program, ctx: &mut Context) -> Result<Self::Out> {
+        let mut p_type = match self.b_type {
+            BType::Int => Type::get_i32(),
+        };
+        if let Some(array_indices) = &self.array_indices {
+            let len = array_indices.len();
+            for i in 0..len {
+                let cur_len_exp = &array_indices[len - 1 - i];
+                let cur_len = cur_len_exp.eval(ctx)?;
+                p_type = Type::get_array(p_type, cur_len as usize);
+            }
+            p_type = Type::get_pointer(p_type);
+        }
+        Ok((Some(format!("@{}", self.name).into()), p_type))
+    }
+}
+
 impl GenerateProgram for FuncDef {
     type Out = ();
 
@@ -61,12 +80,7 @@ impl GenerateProgram for FuncDef {
         };
         let func_params = self.params
             .iter()
-            .map(|param| {
-                let p_type = match param.b_type {
-                    BType::Int => Type::get_i32(),
-                };
-                (Some(format!("@{}", param.name).into()), p_type)
-            })
+            .map(|param| { param.generate(program, ctx).unwrap() })
             .collect();
 
         let func = program.new_func(

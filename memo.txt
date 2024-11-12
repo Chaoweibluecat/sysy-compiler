@@ -9,3 +9,7 @@ r"/\*[^*]*\*+([^/*][^*]*\*+)*/"
 (?:[^/*][^*]*\*+)* - 0+ sequences of:
 [^/*][^*]*\*+ - not a / or * (matched with [^/*]) followed with 0+ non-asterisk characters ([^*]*) followed with 1+ asterisks (\*+)
 / - closing /
+
+
+// arr[][10] 作为函数形参传递时,除了第一维的长度不用传,其他都要传,
+// 对应arr[i][j] , offset = 10 * i + j,不传10这个偏移无法计算, 而第一维是不需要的(因为也没有越界检查)
