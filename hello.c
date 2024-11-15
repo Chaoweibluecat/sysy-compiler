@@ -8,6 +8,10 @@ int main() {
     return 1;
 }
 
+int get_first(int array[]) {
+    return array[1];
+}
+
 // int main() {
 //     int a = 1;
 //     return a;

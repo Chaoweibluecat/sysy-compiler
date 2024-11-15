@@ -1,5 +1,5 @@
 use core::alloc;
-use std::any::{ Any, TypeId };
+use std::{ any::{ Any, TypeId }, ops::Deref };
 
 use super::{ eval::{ self, Eval }, ASTValue, Error };
 use crate::{ ast::*, irgen::{ Context, Result } };
@@ -7,7 +7,7 @@ use koopa::{
     front::ast::Aggregate,
     ir::{
         builder::{ BasicBlockBuilder, GlobalInstBuilder, LocalInstBuilder, ValueBuilder },
-        dfg,
+        entities::ValueData,
         layout::BasicBlockNode,
         BasicBlock,
         BinaryOp,
@@ -98,7 +98,8 @@ impl GenerateProgram for FuncDef {
         ctx.new_scope();
         for i in 0..self.params.len() {
             let val = cur_func_mut(program, ctx).params()[i].clone();
-            let alloc = cur_func_mut(program, ctx).dfg_mut().new_value().alloc(Type::get_i32());
+            let param_type = value_data_in_cur_func(program, ctx, val).ty().clone();
+            let alloc = cur_func_mut(program, ctx).dfg_mut().new_value().alloc(param_type);
             let store = cur_func_mut(program, ctx).dfg_mut().new_value().store(val, alloc);
             push_back_values_as_ins(program, ctx, vec![alloc, store]);
             ctx.insert_symbol(&self.params[i].name, ASTValue::Variable(alloc));
@@ -927,18 +928,55 @@ impl GenerateProgram for UnaryExp {
                                 let mut dst = var.clone();
                                 for i in 0..lval.indices.len() {
                                     let idx = lval.indices[i].generate(program, ctx)?;
-                                    dst = cur_func_mut(program, ctx)
-                                        .dfg_mut()
-                                        .new_value()
-                                        .get_elem_ptr(dst, idx);
-                                    push_back_value_as_ins(program, ctx, dst)?;
+                                    dst = match
+                                        value_data_in_cur_func(program, ctx, dst).ty().kind()
+                                    {
+                                        TypeKind::Pointer(base) => {
+                                            match base.kind() {
+                                                TypeKind::Pointer(_) => {
+                                                    let dst = cur_func_mut(program, ctx)
+                                                        .dfg_mut()
+                                                        .new_value()
+                                                        .get_ptr(dst, idx);
+                                                    push_back_value_as_ins(program, ctx, dst)?;
+                                                    dst
+                                                }
+                                                TypeKind::Array(_, _) => {
+                                                    let dst = cur_func_mut(program, ctx)
+                                                        .dfg_mut()
+                                                        .new_value()
+                                                        .get_elem_ptr(dst, idx);
+                                                    push_back_value_as_ins(program, ctx, dst)?;
+                                                    dst
+                                                }
+                                                _ => unreachable!(),
+                                            }
+                                        }
+                                        _ => unreachable!(),
+                                    };
                                 }
-                                let load = cur_func_mut(program, ctx)
-                                    .dfg_mut()
-                                    .new_value()
-                                    .load(dst);
-                                push_back_value_as_ins(program, ctx, load);
-                                Ok(load)
+                                if dst.is_global() {
+                                    return Ok(dst);
+                                }
+                                // 如果是数组指针,对应数组没有完全解引用的情况,则返回自身,由外界检查并决定使用
+                                // 如果是完全解引用的（如果 a, b[1]),则直接返回load指针后得到的值
+                                match value_data_in_cur_func(program, ctx, dst).ty().kind() {
+                                    TypeKind::Pointer(base) => {
+                                        match base.kind() {
+                                            TypeKind::Int32 => {
+                                                let load = cur_func_mut(program, ctx)
+                                                    .dfg_mut()
+                                                    .new_value()
+                                                    .load(dst);
+                                                push_back_value_as_ins(program, ctx, load)?;
+                                                Ok(load)
+                                            }
+                                            TypeKind::Array(_, _) => { Ok(dst) }
+                                            _ => unreachable!(),
+                                        }
+                                    }
+                                    _ => unreachable!(),
+                                }
                             }
 
                             _ => unreachable!(),
@@ -977,6 +1015,14 @@ impl GenerateProgram for FuncCall {
         let mut call_params = vec![];
         for ele in &self.params {
             let val = ele.generate(program, ctx).unwrap();
+            let val = match value_data_in_cur_func(program, ctx, val).ty().kind() {
+                TypeKind::Pointer(_) => {
+                    let zero = cur_func_mut(program, ctx).dfg_mut().new_value().integer(0);
+                    cur_func_mut(program, ctx).dfg_mut().new_value().get_ptr(val, zero)
+                    // is it a ins?
+                }
+                _ => val,
+            };
             call_params.push(val);
         }
         let func = ctx.scopes.look_up_func(&self.func_name).unwrap().clone();
@@ -1066,6 +1112,13 @@ fn cur_block_mut<'a, 'b>(program: &'a mut Program, ctx: &'b mut Context) -> &'a 
     cur_func_mut(program, ctx).layout_mut().bb_mut(ctx.curr_block.unwrap())
 }
 
+fn value_data_in_cur_func<'a, 'b>(
+    program: &'a mut Program,
+    ctx: &'b mut Context,
+    value: Value
+) -> &'a ValueData {
+    cur_func_mut(program, ctx).dfg().value(value)
+}
 // 为koopaIr注册sysy的库函数定义;同时在上下文中注册库函数name->func的映射,使得后文funcall能找到对应func句柄
 fn add_sysy_lib_func(program: &mut Program, ctx: &mut Context) {
     let dec1 = FunctionData::new_decl("@getint".to_owned(), vec![], Type::get_i32());
