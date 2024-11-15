@@ -926,6 +926,31 @@ impl GenerateProgram for UnaryExp {
                             }
                             Some(ASTValue::Variable(var)) => {
                                 let mut dst = var.clone();
+                                // 存在这两种情况
+                                // 1.var本身是一个本地栈上alloc的array,此时var是一个pointer(array) (at see alloc)
+                                // 2.函数的形参为一个数组,此时函数形参本身是一个pointer(i32),
+                                // 但是scope中存的name对应的var 是本地栈上alloc出的一个栈帧,存的是一个pointer(pointer(i32)) (at see funcParam.generate)
+                                //
+                                let mut is_ptr_ptr = true;
+                                if
+                                    let TypeKind::Pointer(base) = value_data_in_cur_func(
+                                        program,
+                                        ctx,
+                                        dst
+                                    )
+                                        .ty()
+                                        .kind()
+                                {
+                                    if let TypeKind::Pointer(_) = base.kind() {
+                                        is_ptr_ptr = true;
+                                        dst = cur_func_mut(program, ctx)
+                                            .dfg_mut()
+                                            .new_value()
+                                            .load(dst);
+                                        push_back_value_as_ins(program, ctx, dst)?;
+                                    }
+                                }
+
                                 for i in 0..lval.indices.len() {
                                     let idx = lval.indices[i].generate(program, ctx)?;
                                     dst = match
@@ -933,7 +958,10 @@ impl GenerateProgram for UnaryExp {
                                     {
                                         TypeKind::Pointer(base) => {
                                             match base.kind() {
-                                                TypeKind::Pointer(_) => {
+                                                TypeKind::Int32 => {
+                                                    if !is_ptr_ptr {
+                                                        unreachable!("deref an int");
+                                                    }
                                                     let dst = cur_func_mut(program, ctx)
                                                         .dfg_mut()
                                                         .new_value()
@@ -1018,7 +1046,7 @@ impl GenerateProgram for FuncCall {
             let val = match value_data_in_cur_func(program, ctx, val).ty().kind() {
                 TypeKind::Pointer(_) => {
                     let zero = cur_func_mut(program, ctx).dfg_mut().new_value().integer(0);
-                    cur_func_mut(program, ctx).dfg_mut().new_value().get_ptr(val, zero)
+                    cur_func_mut(program, ctx).dfg_mut().new_value().get_elem_ptr(val, zero)
                     // is it a ins?
                 }
                 _ => val,
