@@ -140,6 +140,7 @@ impl GenerateAsm for koopa::ir::entities::ValueData {
 
             // getPtr的偏移,因为数组下标可能是表达式,编译期间无法确定,所以还是需要用乘法指令算出偏移
             ValueKind::GetElemPtr(ptr) => { ptr.generate(file, ctx) }
+            ValueKind::GetPtr(ptr) => { ptr.generate(file, ctx) }
             ValueKind::Return(ret) => {
                 if let Some(value) = ret.value() {
                     let res_val = value.generate(ctx)?;
@@ -370,7 +371,48 @@ impl GenerateAsm for koopa::ir::values::Jump {
         Ok(())
     }
 }
+impl GenerateAsm for koopa::ir::values::GetPtr {
+    type Out = ();
+    fn generate(&self, file: &mut File, ctx: &mut Context) -> Result<Self::Out> {
+        /*
+        addi t0, sp, 4
+    # 计算 getelemptr 的偏移量
+     li t1, 1
+    li t2, 4
+    mul t1, t1, t2
+    # 计算 getelemptr 的结果
+     add t0, t0, t1
+         */
 
+        // 读取Src的地址,写到t0寄存器(基址)
+        let src_address = self.src().generate(ctx)?;
+        if let InsData::StackSlot(offset) = src_address {
+            if ctx.is_ptr(ctx.cur_value.unwrap()) {
+                writeln!(file, "  lw   t0 , {}(sp)", offset);
+                writeln!(file, "  add t0, sp, t0");
+            } else {
+                writeln!(file, "  li   t0 , {}", offset);
+            }
+        } else if let InsData::GlobalVar(name) = src_address {
+            writeln!(file, "  la    t0, {}", name);
+        }
+
+        self.index().generate(ctx)?.write_to(file, &"t1".to_string());
+
+        let cur_value = ctx.cur_func().dfg().value(ctx.cur_value.unwrap());
+        let size = match cur_value.ty().kind() {
+            TypeKind::Pointer(base) => base.size(),
+            _ => unreachable!("ptr op to non-pointer type"),
+        };
+        writeln!(file, "  li   t2 , {}", size);
+        writeln!(file, "  mul t1, t1, t2");
+        writeln!(file, "  add t0, t0, t1");
+
+        let dst = ctx.find_value_stack_offset(ctx.cur_value.unwrap())?;
+        writeln!(file, "  sw  t0, {}(sp)", dst);
+        Ok(())
+    }
+}
 impl GenerateAsm for koopa::ir::values::GetElemPtr {
     type Out = ();
     fn generate(&self, file: &mut File, ctx: &mut Context) -> Result<Self::Out> {

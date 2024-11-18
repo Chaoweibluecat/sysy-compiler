@@ -929,28 +929,30 @@ impl GenerateProgram for UnaryExp {
                                 // 存在这两种情况
                                 // 1.var本身是一个本地栈上alloc的array,此时var是一个pointer(array) (at see alloc)
                                 // 2.函数的形参为一个数组,此时函数形参本身是一个pointer(i32),
-                                // 但是scope中存的name对应的var 是本地栈上alloc出的一个栈帧,存的是一个pointer(pointer(i32)) (at see funcParam.generate)
+                                // 但是scope中存的name对应的var 是本地栈上alloc出的一个栈帧,逻辑上类型是一个pointer(pointer(i32)) (at see funcParam.generate)
                                 //
                                 let mut is_ptr_ptr = true;
-                                if
-                                    let TypeKind::Pointer(base) = value_data_in_cur_func(
-                                        program,
-                                        ctx,
-                                        dst
-                                    )
-                                        .ty()
-                                        .kind()
-                                {
-                                    if let TypeKind::Pointer(_) = base.kind() {
-                                        is_ptr_ptr = true;
-                                        dst = cur_func_mut(program, ctx)
-                                            .dfg_mut()
-                                            .new_value()
-                                            .load(dst);
-                                        push_back_value_as_ins(program, ctx, dst)?;
+                                // 处理下函数形参为数组的情况,此时符号表中存的是一个二阶指针,需要先load一次
+                                if !dst.is_global() {
+                                    if
+                                        let TypeKind::Pointer(base) = value_data_in_cur_func(
+                                            program,
+                                            ctx,
+                                            dst
+                                        )
+                                            .ty()
+                                            .kind()
+                                    {
+                                        if let TypeKind::Pointer(_) = base.kind() {
+                                            is_ptr_ptr = true;
+                                            dst = cur_func_mut(program, ctx)
+                                                .dfg_mut()
+                                                .new_value()
+                                                .load(dst);
+                                            push_back_value_as_ins(program, ctx, dst)?;
+                                        }
                                     }
                                 }
-
                                 for i in 0..lval.indices.len() {
                                     let idx = lval.indices[i].generate(program, ctx)?;
                                     dst = match
@@ -1042,15 +1044,18 @@ impl GenerateProgram for FuncCall {
     fn generate(&self, program: &mut Program, ctx: &mut Context) -> Result<Self::Out> {
         let mut call_params = vec![];
         for ele in &self.params {
-            let val = ele.generate(program, ctx).unwrap();
-            let val = match value_data_in_cur_func(program, ctx, val).ty().kind() {
-                TypeKind::Pointer(_) => {
-                    let zero = cur_func_mut(program, ctx).dfg_mut().new_value().integer(0);
-                    cur_func_mut(program, ctx).dfg_mut().new_value().get_elem_ptr(val, zero)
-                    // is it a ins?
-                }
-                _ => val,
+            let mut val = ele.generate(program, ctx).unwrap();
+
+            let type_kind = if val.is_global() {
+                program.borrow_value(val).ty().kind().clone()
+            } else {
+                value_data_in_cur_func(program, ctx, val).ty().kind().clone()
             };
+
+            // 子表达式解析结果为指针时, 说明是未全解引用的数组入参（at see lval), 此时我们透传出数组首元素的地址
+            if let TypeKind::Pointer(_) = type_kind {
+                val = get_array_pointer(program, ctx, val);
+            }
             call_params.push(val);
         }
         let func = ctx.scopes.look_up_func(&self.func_name).unwrap().clone();
@@ -1059,6 +1064,14 @@ impl GenerateProgram for FuncCall {
         Ok(call)
     }
 }
+
+fn get_array_pointer(program: &mut Program, ctx: &mut Context, val: Value) -> Value {
+    let zero = cur_func_mut(program, ctx).dfg_mut().new_value().integer(0);
+    let array_ptr = cur_func_mut(program, ctx).dfg_mut().new_value().get_elem_ptr(val, zero);
+    push_back_value_as_ins(program, ctx, array_ptr);
+    array_ptr
+}
+
 fn register_binary(
     program: &mut Program,
     ctx: &mut Context,
