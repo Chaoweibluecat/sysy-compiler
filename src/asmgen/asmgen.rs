@@ -2,8 +2,7 @@ use super::{ FunctionInfo, InsData };
 use crate::asmgen::Context;
 use crate::irgen::{ Error, Result };
 use koopa::ir::entities::ValueData;
-use koopa::ir::{ BasicBlock, BinaryOp, FunctionData, Type, TypeKind, Value, ValueKind };
-use std::ops::Deref;
+use koopa::ir::{ BasicBlock, BinaryOp, FunctionData, TypeKind, Value, ValueKind };
 use std::{ fs::File, io::Write };
 // koopa IR => ASM
 pub trait GenerateAsm {
@@ -138,7 +137,8 @@ impl GenerateAsm for koopa::ir::entities::ValueData {
                 //
             }
 
-            // getPtr的偏移,因为数组下标可能是表达式,编译期间无法确定,所以还是需要用乘法指令算出偏移
+            // getPtr的偏移,因为数组下标可能是表达式,编译期间无法确定,所以还是需要用乘法指令算出偏移,
+            // ptr计算结果(即一个绝对地址,保存在一个逻辑内存值中)
             ValueKind::GetElemPtr(ptr) => { ptr.generate(file, ctx) }
             ValueKind::GetPtr(ptr) => { ptr.generate(file, ctx) }
             ValueKind::Return(ret) => {
@@ -197,9 +197,8 @@ impl GenerateAsm for koopa::ir::entities::ValueData {
                 match store.dest().generate(ctx)? {
                     InsData::StackSlot(offset) => {
                         if ctx.is_ptr(store.dest()) {
-                            writeln!(file, "  lw    t0, {}(sp)", offset);
-                            writeln!(file, "  addi  t0, sp, t0");
-                            writeln!(file, "  sw    {}, 0(t0)", left_reg);
+                            writeln!(file, "  lw    t1, {}(sp)", offset);
+                            writeln!(file, "  sw    {}, 0(t1)", left_reg);
                         } else {
                             writeln!(file, "  sw    {}, {}(sp)", left_reg, offset);
                         }
@@ -218,7 +217,6 @@ impl GenerateAsm for koopa::ir::entities::ValueData {
                     InsData::StackSlot(offset) => {
                         if ctx.is_ptr(load.src()) {
                             writeln!(file, "  lw    t0, {}(sp)", offset);
-                            writeln!(file, "  add   t0, t0, sp");
                             writeln!(file, "  lw    t0, 0(t0)");
                         } else {
                             writeln!(file, "  lw    t0, {}(sp)", offset);
@@ -387,11 +385,10 @@ impl GenerateAsm for koopa::ir::values::GetPtr {
         // 读取Src的地址,写到t0寄存器(基址)
         let src_address = self.src().generate(ctx)?;
         if let InsData::StackSlot(offset) = src_address {
-            if ctx.is_ptr(ctx.cur_value.unwrap()) {
+            if ctx.is_ptr(self.src()) {
                 writeln!(file, "  lw   t0 , {}(sp)", offset);
-                writeln!(file, "  add t0, sp, t0");
             } else {
-                writeln!(file, "  li   t0 , {}", offset);
+                writeln!(file, "  addi t0, sp, {}", offset);
             }
         } else if let InsData::GlobalVar(name) = src_address {
             writeln!(file, "  la    t0, {}", name);
@@ -429,11 +426,10 @@ impl GenerateAsm for koopa::ir::values::GetElemPtr {
         // 读取Src的地址,写到t0寄存器(基址)
         let src_address = self.src().generate(ctx)?;
         if let InsData::StackSlot(offset) = src_address {
-            if ctx.is_ptr(ctx.cur_value.unwrap()) {
+            if ctx.is_ptr(self.src()) {
                 writeln!(file, "  lw   t0 , {}(sp)", offset);
-                writeln!(file, "  add t0, sp, t0");
             } else {
-                writeln!(file, "  li   t0 , {}", offset);
+                writeln!(file, "  addi t0, sp, {}", offset);
             }
         } else if let InsData::GlobalVar(name) = src_address {
             writeln!(file, "  la    t0, {}", name);

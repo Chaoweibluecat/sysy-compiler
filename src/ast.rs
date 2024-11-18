@@ -167,7 +167,7 @@ pub struct ConstDef {
 #[derive(Debug)]
 pub enum ConstInitVal {
     Single(ConstExp),
-    List(Vec<ConstExp>),
+    List(Vec<ConstInitVal>),
 }
 #[derive(Debug)]
 pub struct ConstExp {

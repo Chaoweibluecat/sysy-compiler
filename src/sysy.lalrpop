@@ -132,7 +132,7 @@ BType: BType = {
 }
 
 ConstDef: ConstDef = {
-  <id: Ident> "=" <dims: ("[" <ConstExp> "]")*> <init_val: ConstInitVal> => {
+  <id: Ident> <dims: ("[" <ConstExp> "]")*> "=" <init_val: ConstInitVal> => {
     ConstDef {<>}
   }
 }
@@ -142,8 +142,8 @@ ConstInitVal: ConstInitVal = {
   "{" <agg: (ConstExpAgg)?> "}" => ConstInitVal::List(agg.unwrap_or_else(|| {vec![]})),
 }
 
-ConstExpAgg: Vec<ConstExp> = {
-    <exp1: ConstExp> <mut exp_list: ("," <ConstExp>)*> => {
+ConstExpAgg: Vec<ConstInitVal> = {
+    <exp1: ConstInitVal> <mut exp_list: ("," <ConstInitVal>)*> => {
         exp_list.insert(0, exp1);
         exp_list
     }

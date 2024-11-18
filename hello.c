@@ -1,8 +1,6 @@
-int f(int arr[]) {
-  return arr[1];
-}
+int x[2] = {10, 20};
 
 int main() {
-  int arr[2] = {1, 2};
-  return f(arr);
+  const int arr[2] = {1, 2};
+  return arr[2];
 }

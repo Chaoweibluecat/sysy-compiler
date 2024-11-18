@@ -1,27 +1,19 @@
-use core::alloc;
-use std::{ any::{ Any, TypeId }, ops::Deref };
-
-use super::{ eval::{ self, Eval }, ASTValue, Error };
+use super::{ eval::Eval, ASTValue, Error };
 use crate::{ ast::*, irgen::{ Context, Result } };
-use koopa::{
-    front::ast::Aggregate,
-    ir::{
-        builder::{ BasicBlockBuilder, GlobalInstBuilder, LocalInstBuilder, ValueBuilder },
-        entities::ValueData,
-        layout::BasicBlockNode,
-        BasicBlock,
-        BinaryOp,
-        FunctionData,
-        Program,
-        Type,
-        TypeKind,
-        Value,
-        ValueKind,
-    },
+use koopa::ir::{
+    builder::{ BasicBlockBuilder, GlobalInstBuilder, LocalInstBuilder, ValueBuilder },
+    entities::ValueData,
+    layout::BasicBlockNode,
+    BasicBlock,
+    BinaryOp,
+    FunctionData,
+    Program,
+    Type,
+    TypeKind,
+    Value,
 };
 pub trait GenerateProgram {
     type Out;
-
     fn generate(&self, program: &mut Program, ctx: &mut Context) -> Result<Self::Out>;
 }
 
@@ -50,7 +42,7 @@ impl GenerateProgram for GlobalItem {
 
 impl GenerateProgram for FuncFParam {
     type Out = (Option<String>, Type);
-    fn generate(&self, program: &mut Program, ctx: &mut Context) -> Result<Self::Out> {
+    fn generate(&self, _: &mut Program, ctx: &mut Context) -> Result<Self::Out> {
         let mut p_type = match self.b_type {
             BType::Int => Type::get_i32(),
         };
@@ -226,7 +218,8 @@ impl GenerateProgram for VarDef {
                                 program,
                                 ctx,
                                 &dim_vec,
-                                0
+                                0,
+                                false
                             )?;
                             let init = if len.is_empty() {
                                 if let InitValResult::Value(val) = parsed_init_val {
@@ -272,7 +265,13 @@ impl GenerateProgram for VarDef {
                             return Ok(());
                         }
 
-                        let init_res = init_val.generate_init_val(program, ctx, &dim_vec, 0)?;
+                        let init_res = init_val.generate_init_val(
+                            program,
+                            ctx,
+                            &dim_vec,
+                            0,
+                            false
+                        )?;
                         // 处理普通变量赋值
                         if len.is_empty() {
                             let alloc = cur_func_mut(program, ctx)
@@ -397,7 +396,8 @@ impl InitVal {
         program: &mut Program,
         ctx: &mut Context,
         dims: &[i32],
-        cur_idx: i32
+        cur_idx: i32,
+        is_const: bool
     ) -> Result<InitValResult> {
         let mut idx = cur_idx;
         match self {
@@ -428,7 +428,13 @@ impl InitVal {
                         remain = remain / dims[current];
                     }
                     current = current + 1;
-                    let sub_res = sub.generate_init_val(program, ctx, &dims[current..], cur_idx)?;
+                    let sub_res = sub.generate_init_val(
+                        program,
+                        ctx,
+                        &dims[current..],
+                        cur_idx,
+                        false
+                    )?;
                     match sub_res {
                         InitValResult::List(mut sub_list) => {
                             res.append(&mut sub_list);
@@ -476,10 +482,18 @@ impl GenerateProgram for ConstDef {
                 }
             }
             _ => {
-                // let eval_val = self.init_val.generate(program, ctx)?;
-                // if let ConstInitValResult::Value(val) = eval_val {
-                //     ctx.insert_symbol(&self.id.clone(), ASTValue::Variable(val));
-                // }
+                let dims_result: Result<Vec<i32>> = self.dims
+                    .iter()
+                    .map(|exp| { exp.eval(ctx) })
+                    .collect();
+                let dim_vec = dims_result?;
+                let parsed_init_val = self.init_val.generate_init_val(
+                    program,
+                    ctx,
+                    &dim_vec,
+                    0,
+                    false
+                );
             }
         }
         Ok(())
@@ -552,7 +566,6 @@ impl GenerateProgram for Stmt {
                         push_back_value_as_ins(program, ctx, store_ins)?;
                         Ok(())
                     }
-                    _ => unreachable!(),
                 }
             }
             Stmt::While(while_stmt) => while_stmt.generate(program, ctx),
@@ -1008,8 +1021,6 @@ impl GenerateProgram for UnaryExp {
                                     _ => unreachable!(),
                                 }
                             }
-
-                            _ => unreachable!(),
                         }
                     }
                 }
@@ -1033,7 +1044,6 @@ impl GenerateProgram for UnaryExp {
                 }
             }
             UnaryExp::FuncCall(func_call) => func_call.generate(program, ctx),
-            _ => unimplemented!(),
         }
     }
 }
@@ -1060,7 +1070,7 @@ impl GenerateProgram for FuncCall {
         }
         let func = ctx.scopes.look_up_func(&self.func_name).unwrap().clone();
         let call = cur_func_mut(program, ctx).dfg_mut().new_value().call(func, call_params);
-        push_back_value_as_ins(program, ctx, call);
+        push_back_value_as_ins(program, ctx, call)?;
         Ok(call)
     }
 }
@@ -1068,7 +1078,9 @@ impl GenerateProgram for FuncCall {
 fn get_array_pointer(program: &mut Program, ctx: &mut Context, val: Value) -> Value {
     let zero = cur_func_mut(program, ctx).dfg_mut().new_value().integer(0);
     let array_ptr = cur_func_mut(program, ctx).dfg_mut().new_value().get_elem_ptr(val, zero);
-    push_back_value_as_ins(program, ctx, array_ptr);
+    push_back_value_as_ins(program, ctx, array_ptr).expect(
+        "failed to add ptr of array 1st element"
+    );
     array_ptr
 }
 
