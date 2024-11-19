@@ -161,7 +161,21 @@ impl GenerateProgram for VarDecl {
         Ok(())
     }
 }
+pub trait GenType {
+    fn gen_type(&self, ctx: &mut Context) -> Type;
+}
 
+impl GenType for Vec<ConstExp> {
+    fn gen_type(&self, ctx: &mut Context) -> Type {
+        let mut ty = Type::get_i32();
+        for i in 0..self.len() {
+            let len_i = &self[i];
+            let parsed_len = len_i.eval(ctx).unwrap();
+            ty = Type::get_array(ty, parsed_len as usize);
+        }
+        ty
+    }
+}
 impl GenerateProgram for VarDef {
     type Out = ();
     fn generate(&self, program: &mut Program, ctx: &mut Context) -> Result<Self::Out> {
@@ -172,25 +186,14 @@ impl GenerateProgram for VarDef {
                     Some(_) => Err(Error::DuplicateDecl),
                     None => {
                         let alloc = if ctx.in_global_scope() {
-                            let mut ty = Type::get_i32();
-                            for i in 0..len.len() {
-                                let len_i = &len[i];
-                                let parsed_len = len_i.eval(ctx)?;
-                                ty = Type::get_array(ty, parsed_len as usize);
-                            }
+                            let ty = len.gen_type(ctx);
                             let init = program.new_value().zero_init(ty);
                             let alloc = program.new_value().global_alloc(init);
                             program.set_value_name(alloc, Some(format!("@{}", id)));
                             alloc
                         } else {
                             let func_data = program.func_mut(ctx.curr_fuc.unwrap());
-                            //根据是否是数组,选择在ir中alloc i32还是数组
-                            let mut ty = Type::get_i32();
-                            for i in 0..len.len() {
-                                let len_i = &len[i];
-                                let parsed_len = len_i.eval(ctx)?;
-                                ty = Type::get_array(ty, parsed_len as usize);
-                            }
+                            let ty = len.gen_type(ctx);
                             let alloc = func_data.dfg_mut().new_value().alloc(ty);
                             func_data.dfg_mut().set_value_name(alloc, Some(format!("@{}", id)));
                             push_back_value_as_ins(program, ctx, alloc)?;
@@ -211,15 +214,14 @@ impl GenerateProgram for VarDef {
                             .iter()
                             .map(|exp| { exp.eval(ctx) })
                             .collect();
-                        let dim_vec = dims_result?;
+                        let mut dim_vec = dims_result?;
 
                         if ctx.in_global_scope() {
                             let parsed_init_val = init_val.generate_init_val(
                                 program,
                                 ctx,
                                 &dim_vec,
-                                0,
-                                false
+                                0
                             )?;
                             let init = if len.is_empty() {
                                 if let InitValResult::Value(val) = parsed_init_val {
@@ -265,13 +267,7 @@ impl GenerateProgram for VarDef {
                             return Ok(());
                         }
 
-                        let init_res = init_val.generate_init_val(
-                            program,
-                            ctx,
-                            &dim_vec,
-                            0,
-                            false
-                        )?;
+                        let init_res = init_val.generate_init_val(program, ctx, &dim_vec, 0)?;
                         // 处理普通变量赋值
                         if len.is_empty() {
                             let alloc = cur_func_mut(program, ctx)
@@ -294,38 +290,18 @@ impl GenerateProgram for VarDef {
                             return Ok(());
                         }
 
-                        println!("{:?}", init_res);
-
                         // 处理多维数组赋值
-                        let mut ty = Type::get_i32();
-                        let mut parsed_len_array = vec![];
                         // let mut ptr_array = vec![];
-
-                        for i in 0..len.len() {
-                            let len_i = &len[len.len() - 1 - i];
-                            let parsed_len = len_i.eval(ctx)?;
-                            parsed_len_array.insert(0, parsed_len);
-                            ty = Type::get_array(ty, parsed_len as usize);
-                        }
+                        let ty = len.gen_type(ctx);
                         let alloc = cur_func_mut(program, ctx).dfg_mut().new_value().alloc(ty);
 
-                        // todo: 优化getPtr
-                        // let mut prev = alloc;
-                        // for i in 0..parsed_len_array.len() {
-                        //     let zero = cur_func_mut(program, ctx).dfg_mut().new_value().integer(0);
-                        //     let prev = cur_func_mut(program, ctx)
-                        //         .dfg_mut()
-                        //         .new_value()
-                        //         .get_elem_ptr(prev, zero);
-                        //     ptr_array.insert(0, prev);
-                        // }
                         push_back_value_as_ins(program, ctx, alloc)?;
                         let mut cur_idx_array: Vec<i32> = len
                             .iter()
                             .map(|_| { 0 })
                             .collect();
                         // 每次inc一个多维数组的idx;直到赋值完所有
-                        while cur_idx_array[0] < parsed_len_array[0] {
+                        while cur_idx_array[0] < dim_vec[0] {
                             let mut ptr = alloc;
                             let mut ptrs = vec![];
                             for i in 0..cur_idx_array.len() {
@@ -341,7 +317,7 @@ impl GenerateProgram for VarDef {
                             }
                             let mut idx = cur_idx_array[0];
                             for i in 1..cur_idx_array.len() {
-                                idx = idx * parsed_len_array[i] + cur_idx_array[i];
+                                idx = idx * dim_vec[i] + cur_idx_array[i];
                             }
                             let store = cur_func_mut(program, ctx)
                                 .dfg_mut()
@@ -349,8 +325,7 @@ impl GenerateProgram for VarDef {
                                 .store(init_res.get_index(idx as usize).clone(), ptr);
                             ptrs.push(store);
                             push_back_values_as_ins(program, ctx, ptrs);
-
-                            inc(&mut parsed_len_array, &mut cur_idx_array);
+                            inc(&mut dim_vec, &mut cur_idx_array);
                         }
                         ctx.insert_symbol(&format!("{}", id).to_owned(), ASTValue::Variable(alloc));
 
@@ -390,14 +365,72 @@ impl InitValResult {
     }
 }
 
+impl ConstInitVal {
+    fn generate_init_val(
+        &self,
+        program: &mut Program,
+        ctx: &mut Context,
+        dims: &[i32],
+        cur_idx: i32
+    ) -> Result<InitValResult> {
+        let mut idx = cur_idx;
+        match self {
+            ConstInitVal::Single(exp) => {
+                let res = exp.eval(ctx)?;
+                Ok(InitValResult::Value(program.new_value().integer(res)))
+            }
+            ConstInitVal::List(list) => {
+                let size: i32 = dims.iter().fold(1, |acc, &x| acc * x);
+                if idx % dims[dims.len() - 1] != 0 || idx >= size {
+                    panic!("FuckedUp");
+                }
+                let mut res: Vec<Value> = vec![];
+                for sub in list {
+                    let mut remain = idx;
+                    // 从数组最后一列开始,向前整除,看看当前状态下,如果生成list,那么对齐的是哪一维
+                    // int[2][3][4] {1, 2, 3, 4, {5}} ,idx = 4,对应int[4]
+                    // int[2][3][4] {1, 2, 3, 4, 1, 2, 3, 4, 1, 2, 3, 4, {5}}, idx=12,对应 int[3][4]
+                    // int[2][3][4] {{5}} ,idx = 0,对应 int[3][4]
+                    let mut current = dims.len() - 1;
+                    while remain % dims[current] == 0 && current >= 1 {
+                        current = current - 1;
+                        remain = remain / dims[current];
+                    }
+                    current = current + 1;
+                    let sub_res = sub.generate_init_val(program, ctx, &dims[current..], cur_idx)?;
+                    match sub_res {
+                        InitValResult::List(mut sub_list) => {
+                            res.append(&mut sub_list);
+                            idx = idx + (sub_list.len() as i32);
+                        }
+                        InitValResult::Value(val) => {
+                            res.push(val);
+                            idx = idx + 1;
+                        }
+                    }
+                }
+                // 补零
+                let zero = if ctx.in_global_scope() {
+                    program.new_value().integer(0)
+                } else {
+                    cur_func_mut(program, ctx).dfg_mut().new_value().integer(0)
+                };
+                while res.len() < (size as usize) {
+                    res.push(zero);
+                }
+                Ok(InitValResult::List(res))
+            }
+        }
+    }
+}
+
 impl InitVal {
     fn generate_init_val(
         &self,
         program: &mut Program,
         ctx: &mut Context,
         dims: &[i32],
-        cur_idx: i32,
-        is_const: bool
+        cur_idx: i32
     ) -> Result<InitValResult> {
         let mut idx = cur_idx;
         match self {
@@ -428,13 +461,7 @@ impl InitVal {
                         remain = remain / dims[current];
                     }
                     current = current + 1;
-                    let sub_res = sub.generate_init_val(
-                        program,
-                        ctx,
-                        &dims[current..],
-                        cur_idx,
-                        false
-                    )?;
+                    let sub_res = sub.generate_init_val(program, ctx, &dims[current..], cur_idx)?;
                     match sub_res {
                         InitValResult::List(mut sub_list) => {
                             res.append(&mut sub_list);
@@ -476,10 +503,8 @@ impl GenerateProgram for ConstDef {
     fn generate(&self, program: &mut Program, ctx: &mut Context) -> Result<Self::Out> {
         match &self.dims.len() {
             0 => {
-                let eval_val = self.init_val.generate(program, ctx)?;
-                if let ConstInitValResult::Int(val) = eval_val {
-                    ctx.insert_symbol(&self.id.clone(), ASTValue::Const(val));
-                }
+                let eval_val = self.init_val.eval(ctx)?;
+                ctx.insert_symbol(&self.id.clone(), ASTValue::Const(eval_val));
             }
             _ => {
                 let dims_result: Result<Vec<i32>> = self.dims
@@ -487,36 +512,10 @@ impl GenerateProgram for ConstDef {
                     .map(|exp| { exp.eval(ctx) })
                     .collect();
                 let dim_vec = dims_result?;
-                let parsed_init_val = self.init_val.generate_init_val(
-                    program,
-                    ctx,
-                    &dim_vec,
-                    0,
-                    false
-                );
+                let parsed_init_val = self.init_val.generate_init_val(program, ctx, &dim_vec, 0);
             }
         }
         Ok(())
-    }
-}
-
-pub enum ConstInitValResult {
-    Int(i32),
-    List(Value, i32),
-}
-
-impl GenerateProgram for ConstInitVal {
-    type Out = ConstInitValResult;
-    fn generate(&self, program: &mut Program, ctx: &mut Context) -> Result<Self::Out> {
-        match self {
-            ConstInitVal::Single(exp) => Ok(ConstInitValResult::Int(exp.generate(program, ctx)?)),
-            ConstInitVal::List(list) => {
-                for const_exp in list {
-                    //
-                }
-                Ok(ConstInitValResult::Int(1))
-            }
-        }
     }
 }
 
