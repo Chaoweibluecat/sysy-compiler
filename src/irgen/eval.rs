@@ -1,4 +1,7 @@
-use crate::{ ast::*, irgen::{ Context, Result } };
+use crate::{
+    ast::*,
+    irgen::{Context, Result},
+};
 
 use super::ASTValue;
 
@@ -8,7 +11,11 @@ use super::ASTValue;
 // 变量对应的值在编译期间无法确定; 所以在PrimaryExp.eval中会拒绝求值;
 // 编译期间表达式求值仅依赖符号表,不依赖Program;
 fn cast_int_to_bool(int_val: i32) -> bool {
-    if int_val == 0 { false } else { true }
+    if int_val == 0 {
+        false
+    } else {
+        true
+    }
 }
 
 pub trait Eval {
@@ -167,7 +174,7 @@ impl Eval for PrimaryExp {
             PrimaryExp::Number(num) => Ok(*num),
             PrimaryExp::LVal(lval) => {
                 let val_op = ctx.look_up_symbol(&lval.id);
-                if lval.indices.is_empty() {
+                if !lval.indices.is_empty() {
                     return Err(super::Error::VariableEvalAtCompileTime);
                 }
                 match val_op {
