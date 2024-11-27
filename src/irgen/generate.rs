@@ -53,6 +53,7 @@ impl GenerateProgram for FuncFParam {
                 p_type = Type::get_array(p_type, cur_len as usize);
             }
             p_type = Type::get_pointer(p_type);
+            println!("p_type {:?}", p_type);
         }
         Ok((Some(format!("@{}", self.name).into()), p_type))
     }
@@ -176,7 +177,7 @@ impl GenType for Vec<ConstExp> {
     fn gen_type(&self, ctx: &mut Context) -> Type {
         let mut ty = Type::get_i32();
         for i in 0..self.len() {
-            let len_i = &self[i];
+            let len_i = &self[self.len() - 1 - i];
             let parsed_len = len_i.eval(ctx).unwrap();
             ty = Type::get_array(ty, parsed_len as usize);
         }
@@ -629,16 +630,59 @@ impl GenerateProgram for Stmt {
                     None => Err(Error::UnknownSymbol),
                     Some(ASTValue::Variable(var)) => {
                         let mut dst = var.clone();
+                        let mut is_ptr_ptr = false;
+                        if !dst.is_global() {
+                            if let TypeKind::Pointer(base) =
+                                value_data_in_cur_func(program, ctx, dst).ty().kind()
+                            {
+                                if let TypeKind::Pointer(_) = base.kind() {
+                                    is_ptr_ptr = true;
+                                    dst =
+                                        cur_func_mut(program, ctx).dfg_mut().new_value().load(dst);
+                                    push_back_value_as_ins(program, ctx, dst)?;
+                                }
+                            }
+                        }
+
                         for i in 0..lval.indices.len() {
+                            let kind = if dst.is_global() {
+                                program.borrow_value(dst).ty().kind().clone()
+                            } else {
+                                value_data_in_cur_func(program, ctx, dst)
+                                    .ty()
+                                    .kind()
+                                    .clone()
+                            };
                             let idx = lval.indices[i].generate(program, ctx)?;
-                            dst = cur_func_mut(program, ctx)
-                                .dfg_mut()
-                                .new_value()
-                                .get_elem_ptr(dst, idx);
-                            push_back_value_as_ins(program, ctx, dst)?;
+                            dst = match kind {
+                                TypeKind::Pointer(base) => match base.kind() {
+                                    TypeKind::Int32 => {
+                                        if !is_ptr_ptr {
+                                            unreachable!("deref an int");
+                                        }
+                                        let dst = cur_func_mut(program, ctx)
+                                            .dfg_mut()
+                                            .new_value()
+                                            .get_ptr(dst, idx);
+                                        push_back_value_as_ins(program, ctx, dst)?;
+                                        dst
+                                    }
+                                    TypeKind::Array(_, _) => {
+                                        let dst = cur_func_mut(program, ctx)
+                                            .dfg_mut()
+                                            .new_value()
+                                            .get_elem_ptr(dst, idx);
+                                        push_back_value_as_ins(program, ctx, dst)?;
+                                        dst
+                                    }
+                                    _ => unreachable!(),
+                                },
+                                _ => unreachable!(),
+                            };
                         }
                         let rval = exp.generate(program, ctx)?;
-                        let store_ins = cur_func_mut(program, ctx)
+
+                        let store_ins: Value = cur_func_mut(program, ctx)
                             .dfg_mut()
                             .new_value()
                             .store(rval, dst);
@@ -1045,6 +1089,7 @@ impl GenerateProgram for UnaryExp {
                             //
                             let mut is_ptr_ptr = true;
                             // 处理下函数形参为数组的情况,此时符号表中存的是一个二阶指针,需要先load一次
+                            // todo:stmt assign里有类似逻辑，考虑合并
                             if !dst.is_global() {
                                 if let TypeKind::Pointer(base) =
                                     value_data_in_cur_func(program, ctx, dst).ty().kind()
