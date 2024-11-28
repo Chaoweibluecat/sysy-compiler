@@ -185,7 +185,7 @@ pub struct LVal {
 
 #[derive(Debug)]
 pub enum Stmt {
-    Ret(Exp),
+    Ret(Option<Exp>),
     Assign(LVal, Exp),
     Exp(Option<Exp>),
     IfStmt(IfStmt),

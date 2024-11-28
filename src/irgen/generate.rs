@@ -101,10 +101,11 @@ impl GenerateProgram for FuncDef {
         }
         self.block.generate(program, ctx)?;
 
-        // 为void类型末尾补充ret指令, sysy的标准ret后必须跟exp;所以void函数都不会以ret结尾
         if let FuncType::Void = self.func_type {
-            let ret = cur_func_mut(program, ctx).dfg_mut().new_value().ret(None);
-            push_back_value_as_ins(program, ctx, ret)?;
+            if !self.end_with_ret() {
+                let ret = cur_func_mut(program, ctx).dfg_mut().new_value().ret(None);
+                push_back_value_as_ins(program, ctx, ret)?;
+            }
         }
         remove_useless_block(program, ctx);
         ctx.leave_scope();
@@ -112,6 +113,15 @@ impl GenerateProgram for FuncDef {
         Ok(())
     }
 }
+
+impl FuncDef {
+    fn end_with_ret(&self) -> bool {
+        self.block.items
+            .last()
+            .map_or(false, |item| { matches!(item, BlockItem::Stmt(Stmt::Ret(_))) })
+    }
+}
+
 impl GenerateProgram for Block {
     type Out = ();
 
@@ -623,11 +633,14 @@ impl GenerateProgram for Stmt {
 
     fn generate(&self, program: &mut Program, ctx: &mut Context) -> Result<Self::Out> {
         match self {
-            Stmt::Ret(exp) => {
+            Stmt::Ret(exp_op) => {
                 // todo 优化: 基本块的出口是唯一的,
                 // 翻译完return后可以在ctx中关闭基本块, 这样一些递归后序操作（比如if-else的尾部跳转指令）就不用加进去
-                let res_val = exp.generate(program, ctx)?;
-                let ret = cur_func_mut(program, ctx).dfg_mut().new_value().ret(Some(res_val));
+                let res_val = exp_op
+                    .as_ref()
+                    .map(|exp| { exp.generate(program, ctx).unwrap() })
+                    .or(None);
+                let ret = cur_func_mut(program, ctx).dfg_mut().new_value().ret(res_val);
                 push_back_value_as_ins(program, ctx, ret)?;
                 next_bb(program, ctx)?;
                 Ok(())
@@ -670,35 +683,24 @@ impl GenerateProgram for Stmt {
                                 value_data_in_cur_func(program, ctx, dst).ty().kind().clone()
                             };
                             let idx = lval.indices[i].generate(program, ctx)?;
-                            dst = match kind {
-                                TypeKind::Pointer(base) =>
-                                    match base.kind() {
-                                        TypeKind::Int32 => {
-                                            if !is_ptr_ptr {
-                                                unreachable!("deref an int");
-                                            }
-                                            let dst = cur_func_mut(program, ctx)
-                                                .dfg_mut()
-                                                .new_value()
-                                                .get_ptr(dst, idx);
-                                            push_back_value_as_ins(program, ctx, dst)?;
-                                            dst
-                                        }
-                                        TypeKind::Array(_, _) => {
-                                            let dst = cur_func_mut(program, ctx)
-                                                .dfg_mut()
-                                                .new_value()
-                                                .get_elem_ptr(dst, idx);
-                                            push_back_value_as_ins(program, ctx, dst)?;
-                                            dst
-                                        }
-                                        _ => unreachable!(),
-                                    }
-                                _ => unreachable!(),
+                            dst = if is_ptr_ptr && i == 0 {
+                                let dst = cur_func_mut(program, ctx)
+                                    .dfg_mut()
+                                    .new_value()
+                                    .get_ptr(dst, idx);
+                                is_ptr_ptr = false;
+                                dst
+                            } else {
+                                let dst = cur_func_mut(program, ctx)
+                                    .dfg_mut()
+                                    .new_value()
+                                    .get_elem_ptr(dst, idx);
+                                dst
                             };
+                            push_back_value_as_ins(program, ctx, dst)?;
                         }
-                        let rval = exp.generate(program, ctx)?;
 
+                        let rval = exp.generate(program, ctx)?;
                         let store_ins: Value = cur_func_mut(program, ctx)
                             .dfg_mut()
                             .new_value()
@@ -1086,8 +1088,6 @@ impl GenerateProgram for UnaryExp {
                                 //
                                 let mut is_ptr_ptr = false;
                                 // 处理下函数形参为数组的情况,此时符号表中存的是一个二阶指针,需要先load一次
-                                // todo:stmt assign里有类似逻辑，考虑合并
-                                let mut fully_deref = true;
 
                                 if !dst.is_global() {
                                     if
@@ -1101,7 +1101,6 @@ impl GenerateProgram for UnaryExp {
                                     {
                                         if let TypeKind::Pointer(_) = base.kind() {
                                             is_ptr_ptr = true;
-                                            fully_deref = false;
                                             dst = cur_func_mut(program, ctx)
                                                 .dfg_mut()
                                                 .new_value()
@@ -1146,11 +1145,19 @@ impl GenerateProgram for UnaryExp {
                                     push_back_value_as_ins(program, ctx, load)?;
                                     return Ok(load);
                                 }
+                                // 是上层传递的指针 且没有经过任何一次解引用,那么透传load过一次的值
+                                // int arr[][10] => arr 直接透传传进来的arr指针的值 *i32
                                 if is_ptr_ptr {
                                     return Ok(dst);
                                 }
-                                // 如果是数组指针,对应数组没有完全解引用的情况,则返回自身,由外界检查并决定使用
-                                // 如果是完全解引用的（如果 a, b[1]),则直接返回load指针后得到的值
+                                // 至少经过一次解引用
+                                // 如果是数组指针,那么返回首元素地址
+                                // int arr[10][10] => arr 透传 *int[10]; arr[0] 透传 *i32
+                                // int arr[][10] => arr[1] 得到的是一个 *i32[10],取首元素地址 ,透传*i32
+                                // 如果是整数指针,load出值
+                                // int arr[10][10] => arr[0][0] 得到 *i32,load
+                                // int arr[][10] => arr[0] 得到 *(i32[10]),再getEle得到 *i32,再load出来
+                                // int arr[] => arr, 栈上的arr是**i32,默认第一次load后是*i32,但是没有解引用过,is_ptr_ptr为false,在上面的分支中就返回 *i32
                                 match value_data_in_cur_func(program, ctx, dst).ty().kind() {
                                     TypeKind::Pointer(base) =>
                                         match base.kind() {
