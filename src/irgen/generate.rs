@@ -1,5 +1,3 @@
-use core::borrow;
-
 use super::{ eval::Eval, ASTValue, Error };
 use crate::{ ast::*, irgen::{ Context, Result } };
 use koopa::ir::{
@@ -375,6 +373,7 @@ fn inc(len: &mut Vec<i32>, idx: &mut Vec<i32>) -> bool {
         }
     }
 }
+
 #[derive(Debug)]
 pub enum InitValResult {
     Value(Value),
@@ -677,11 +676,6 @@ impl GenerateProgram for Stmt {
                         }
 
                         for i in 0..lval.indices.len() {
-                            let kind = if dst.is_global() {
-                                program.borrow_value(dst).ty().kind().clone()
-                            } else {
-                                value_data_in_cur_func(program, ctx, dst).ty().kind().clone()
-                            };
                             let idx = lval.indices[i].generate(program, ctx)?;
                             dst = if is_ptr_ptr && i == 0 {
                                 let dst = cur_func_mut(program, ctx)
@@ -699,7 +693,6 @@ impl GenerateProgram for Stmt {
                             };
                             push_back_value_as_ins(program, ctx, dst)?;
                         }
-
                         let rval = exp.generate(program, ctx)?;
                         let store_ins: Value = cur_func_mut(program, ctx)
                             .dfg_mut()
@@ -1045,7 +1038,113 @@ impl GenerateProgram for LOrExp {
         }
     }
 }
+impl GenerateProgram for LVal {
+    type Out = Value;
+    fn generate(&self, program: &mut Program, ctx: &mut Context) -> Result<Self::Out> {
+        let is_array = !self.indices.is_empty();
+        // lval作为表达式（即出现在等号右边时),此时需要求值
+        // 1. name => 内存位置 (查env//符号表)
+        // 2. 内存位置 => 内存值 (koopa中的load, 读出val作为指针实际指向的栈值，作为表达式的返回)
+        let value: Option<&ASTValue> = ctx.look_up_symbol(&self.id);
+        match value {
+            None => Err(super::Error::UnknownSymbol),
+            Some(ASTValue::Const(val)) => {
+                assert!(!is_array);
+                let local_val = val.clone();
+                // 表达式中的左值,如果是常量,直接取解析结果
+                Ok(cur_func_mut(program, ctx).dfg_mut().new_value().integer(local_val))
+            }
+            Some(ASTValue::Variable(var)) => {
+                let mut dst = var.clone();
+                // 存在这两种情况
+                // 1.var本身是一个本地栈上alloc的array,此时var是一个pointer(array) (at see alloc)
+                // 2.函数的形参为一个数组,此时函数形参本身是一个pointer(i32),
+                // 但是scope中存的name对应的var 是本地栈上alloc出的一个栈帧,逻辑上类型是一个pointer(pointer(i32)) (at see funcParam.generate)
+                //
+                let mut is_ptr_ptr = false;
+                // 处理下函数形参为数组的情况,此时符号表中存的是一个二阶指针,需要先load一次
+                if !dst.is_global() {
+                    if
+                        let TypeKind::Pointer(base) = value_data_in_cur_func(program, ctx, dst)
+                            .ty()
+                            .kind()
+                    {
+                        if let TypeKind::Pointer(_) = base.kind() {
+                            is_ptr_ptr = true;
+                            dst = cur_func_mut(program, ctx).dfg_mut().new_value().load(dst);
+                            push_back_value_as_ins(program, ctx, dst)?;
+                        }
+                    }
+                }
 
+                for i in 0..self.indices.len() {
+                    let idx = self.indices[i].generate(program, ctx)?;
+                    dst = if is_ptr_ptr && i == 0 {
+                        let dst = cur_func_mut(program, ctx)
+                            .dfg_mut()
+                            .new_value()
+                            .get_ptr(dst, idx);
+                        is_ptr_ptr = false;
+                        dst
+                    } else {
+                        let dst = cur_func_mut(program, ctx)
+                            .dfg_mut()
+                            .new_value()
+                            .get_elem_ptr(dst, idx);
+                        dst
+                    };
+                    push_back_value_as_ins(program, ctx, dst)?;
+                }
+
+                if dst.is_global() {
+                    let load = cur_func_mut(program, ctx).dfg_mut().new_value().load(dst);
+                    push_back_value_as_ins(program, ctx, load)?;
+                    return Ok(load);
+                }
+                // 是上层传递的指针 且没有经过任何一次解引用,那么透传load过一次的值
+                // int arr[][10] => arr 直接透传传进来的arr指针的值 *i32
+                if is_ptr_ptr {
+                    return Ok(dst);
+                }
+                // 至少经过一次解引用
+                // 如果是数组指针,那么返回首元素地址
+                // int arr[10][10] => arr 透传 *int[10]; arr[0] 透传 *i32
+                // int arr[][10] => arr[1] 得到的是一个 *i32[10],取首元素地址 ,透传*i32
+                // 如果是整数指针,load出值
+                // int arr[10][10] => arr[0][0] 得到 *i32,load
+                // int arr[][10] => arr[0] 得到 *(i32[10]),再getEle得到 *i32,再load出来
+                // int arr[] => arr, 栈上的arr是**i32,默认第一次load后是*i32,但是没有解引用过,is_ptr_ptr为false,在上面的分支中就返回 *i32
+                match value_data_in_cur_func(program, ctx, dst).ty().kind() {
+                    TypeKind::Pointer(base) =>
+                        match base.kind() {
+                            TypeKind::Int32 => {
+                                let load = cur_func_mut(program, ctx)
+                                    .dfg_mut()
+                                    .new_value()
+                                    .load(dst);
+                                push_back_value_as_ins(program, ctx, load)?;
+                                Ok(load)
+                            }
+                            TypeKind::Array(_, _) => {
+                                let zero = cur_func_mut(program, ctx)
+                                    .dfg_mut()
+                                    .new_value()
+                                    .integer(0);
+                                dst = cur_func_mut(program, ctx)
+                                    .dfg_mut()
+                                    .new_value()
+                                    .get_elem_ptr(dst, zero);
+                                push_back_value_as_ins(program, ctx, dst)?;
+                                Ok(dst)
+                            }
+                            _ => unreachable!(),
+                        }
+                    _ => unreachable!(),
+                }
+            }
+        }
+    }
+}
 impl GenerateProgram for UnaryExp {
     type Out = Value;
 
@@ -1060,134 +1159,7 @@ impl GenerateProgram for UnaryExp {
                         Ok(val)
                     }
                     PrimaryExp::Exp(exp) => exp.generate(program, ctx),
-                    PrimaryExp::LVal(lval) => {
-                        let is_array = !lval.indices.is_empty();
-                        // lval作为表达式（即出现在等号右边时),此时需要求值
-                        // 1. name => 内存位置 (查env//符号表)
-                        // 2. 内存位置 => 内存值 (koopa中的load, 读出val作为指针实际指向的栈值，作为表达式的返回)
-                        let value: Option<&ASTValue> = ctx.look_up_symbol(&lval.id);
-                        match value {
-                            None => Err(super::Error::UnknownSymbol),
-                            Some(ASTValue::Const(val)) => {
-                                assert!(!is_array);
-                                let local_val = val.clone();
-                                // 表达式中的左值,如果是常量,直接取解析结果
-                                Ok(
-                                    cur_func_mut(program, ctx)
-                                        .dfg_mut()
-                                        .new_value()
-                                        .integer(local_val)
-                                )
-                            }
-                            Some(ASTValue::Variable(var)) => {
-                                let mut dst = var.clone();
-                                // 存在这两种情况
-                                // 1.var本身是一个本地栈上alloc的array,此时var是一个pointer(array) (at see alloc)
-                                // 2.函数的形参为一个数组,此时函数形参本身是一个pointer(i32),
-                                // 但是scope中存的name对应的var 是本地栈上alloc出的一个栈帧,逻辑上类型是一个pointer(pointer(i32)) (at see funcParam.generate)
-                                //
-                                let mut is_ptr_ptr = false;
-                                // 处理下函数形参为数组的情况,此时符号表中存的是一个二阶指针,需要先load一次
-
-                                if !dst.is_global() {
-                                    if
-                                        let TypeKind::Pointer(base) = value_data_in_cur_func(
-                                            program,
-                                            ctx,
-                                            dst
-                                        )
-                                            .ty()
-                                            .kind()
-                                    {
-                                        if let TypeKind::Pointer(_) = base.kind() {
-                                            is_ptr_ptr = true;
-                                            dst = cur_func_mut(program, ctx)
-                                                .dfg_mut()
-                                                .new_value()
-                                                .load(dst);
-                                            push_back_value_as_ins(program, ctx, dst)?;
-                                        }
-                                    }
-                                }
-
-                                for i in 0..lval.indices.len() {
-                                    let kind = if dst.is_global() {
-                                        program.borrow_value(dst).ty().kind().clone()
-                                    } else {
-                                        value_data_in_cur_func(program, ctx, dst)
-                                            .ty()
-                                            .kind()
-                                            .clone()
-                                    };
-                                    let idx = lval.indices[i].generate(program, ctx)?;
-                                    dst = if is_ptr_ptr && i == 0 {
-                                        let dst = cur_func_mut(program, ctx)
-                                            .dfg_mut()
-                                            .new_value()
-                                            .get_ptr(dst, idx);
-                                        is_ptr_ptr = false;
-                                        dst
-                                    } else {
-                                        let dst = cur_func_mut(program, ctx)
-                                            .dfg_mut()
-                                            .new_value()
-                                            .get_elem_ptr(dst, idx);
-                                        dst
-                                    };
-                                    push_back_value_as_ins(program, ctx, dst)?;
-                                }
-
-                                if dst.is_global() {
-                                    let load = cur_func_mut(program, ctx)
-                                        .dfg_mut()
-                                        .new_value()
-                                        .load(dst);
-                                    push_back_value_as_ins(program, ctx, load)?;
-                                    return Ok(load);
-                                }
-                                // 是上层传递的指针 且没有经过任何一次解引用,那么透传load过一次的值
-                                // int arr[][10] => arr 直接透传传进来的arr指针的值 *i32
-                                if is_ptr_ptr {
-                                    return Ok(dst);
-                                }
-                                // 至少经过一次解引用
-                                // 如果是数组指针,那么返回首元素地址
-                                // int arr[10][10] => arr 透传 *int[10]; arr[0] 透传 *i32
-                                // int arr[][10] => arr[1] 得到的是一个 *i32[10],取首元素地址 ,透传*i32
-                                // 如果是整数指针,load出值
-                                // int arr[10][10] => arr[0][0] 得到 *i32,load
-                                // int arr[][10] => arr[0] 得到 *(i32[10]),再getEle得到 *i32,再load出来
-                                // int arr[] => arr, 栈上的arr是**i32,默认第一次load后是*i32,但是没有解引用过,is_ptr_ptr为false,在上面的分支中就返回 *i32
-                                match value_data_in_cur_func(program, ctx, dst).ty().kind() {
-                                    TypeKind::Pointer(base) =>
-                                        match base.kind() {
-                                            TypeKind::Int32 => {
-                                                let load = cur_func_mut(program, ctx)
-                                                    .dfg_mut()
-                                                    .new_value()
-                                                    .load(dst);
-                                                push_back_value_as_ins(program, ctx, load)?;
-                                                Ok(load)
-                                            }
-                                            TypeKind::Array(_, _) => {
-                                                let zero = cur_func_mut(program, ctx)
-                                                    .dfg_mut()
-                                                    .new_value()
-                                                    .integer(0);
-                                                dst = cur_func_mut(program, ctx)
-                                                    .dfg_mut()
-                                                    .new_value()
-                                                    .get_elem_ptr(dst, zero);
-                                                push_back_value_as_ins(program, ctx, dst)?;
-                                                Ok(dst)
-                                            }
-                                            _ => unreachable!(),
-                                        }
-                                    _ => unreachable!(),
-                                }
-                            }
-                        }
-                    }
+                    PrimaryExp::LVal(lval) => { lval.generate(program, ctx) }
                 }
             UnaryExp::UnaryExp(op, rexp) => {
                 let rhs = rexp.generate(program, ctx)?;
@@ -1219,13 +1191,7 @@ impl GenerateProgram for FuncCall {
     fn generate(&self, program: &mut Program, ctx: &mut Context) -> Result<Self::Out> {
         let mut call_params = vec![];
         for ele in &self.params {
-            let mut val = ele.generate(program, ctx).unwrap();
-
-            let type_kind = if val.is_global() {
-                program.borrow_value(val).ty().kind().clone()
-            } else {
-                value_data_in_cur_func(program, ctx, val).ty().kind().clone()
-            };
+            let val = ele.generate(program, ctx)?;
             call_params.push(val);
         }
         let func = ctx.scopes.look_up_func(&self.func_name).unwrap().clone();
@@ -1323,6 +1289,7 @@ fn value_data_in_cur_func<'a, 'b>(
 ) -> &'a ValueData {
     cur_func_mut(program, ctx).dfg().value(value)
 }
+
 // 为koopaIr注册sysy的库函数定义;同时在上下文中注册库函数name->func的映射,使得后文funcall能找到对应func句柄
 fn add_sysy_lib_func(program: &mut Program, ctx: &mut Context) {
     let dec1 = FunctionData::new_decl("@getint".to_owned(), vec![], Type::get_i32());
