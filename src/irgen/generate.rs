@@ -275,12 +275,17 @@ impl GenerateProgram for VarDef {
                                 .dfg_mut()
                                 .new_value()
                                 .alloc(Type::get_i32());
+
                             if let InitValResult::Value(val) = init_res {
                                 let store = cur_func_mut(program, ctx)
                                     .dfg_mut()
                                     .new_value()
                                     .store(val, alloc);
                                 push_back_values_as_ins(program, ctx, vec![alloc, store]);
+                                cur_func_mut(program, ctx)
+                                    .dfg_mut()
+                                    .set_value_name(alloc, Some(format!("@{}", id)));
+
                                 ctx.insert_symbol(
                                     &format!("{}", id).to_owned(),
                                     ASTValue::Variable(alloc),
@@ -297,6 +302,10 @@ impl GenerateProgram for VarDef {
                         let alloc = cur_func_mut(program, ctx).dfg_mut().new_value().alloc(ty);
 
                         push_back_value_as_ins(program, ctx, alloc)?;
+                        cur_func_mut(program, ctx)
+                            .dfg_mut()
+                            .set_value_name(alloc, Some(format!("@{}", id)));
+
                         let mut cur_idx_array: Vec<i32> = len.iter().map(|_| 0).collect();
                         // 每次inc一个多维数组的idx;直到赋值完所有
                         while cur_idx_array[0] < dim_vec[0] {
@@ -1087,15 +1096,18 @@ impl GenerateProgram for UnaryExp {
                             // 2.函数的形参为一个数组,此时函数形参本身是一个pointer(i32),
                             // 但是scope中存的name对应的var 是本地栈上alloc出的一个栈帧,逻辑上类型是一个pointer(pointer(i32)) (at see funcParam.generate)
                             //
-                            let mut is_ptr_ptr = true;
+                            let mut is_ptr_ptr = false;
                             // 处理下函数形参为数组的情况,此时符号表中存的是一个二阶指针,需要先load一次
                             // todo:stmt assign里有类似逻辑，考虑合并
+                            let mut fully_deref = true;
+
                             if !dst.is_global() {
                                 if let TypeKind::Pointer(base) =
                                     value_data_in_cur_func(program, ctx, dst).ty().kind()
                                 {
                                     if let TypeKind::Pointer(_) = base.kind() {
                                         is_ptr_ptr = true;
+                                        fully_deref = false;
                                         dst = cur_func_mut(program, ctx)
                                             .dfg_mut()
                                             .new_value()
@@ -1118,13 +1130,11 @@ impl GenerateProgram for UnaryExp {
                                 dst = match kind {
                                     TypeKind::Pointer(base) => match base.kind() {
                                         TypeKind::Int32 => {
-                                            if !is_ptr_ptr {
-                                                unreachable!("deref an int");
-                                            }
                                             let dst = cur_func_mut(program, ctx)
                                                 .dfg_mut()
                                                 .new_value()
                                                 .get_ptr(dst, idx);
+                                            fully_deref = true;
                                             push_back_value_as_ins(program, ctx, dst)?;
                                             dst
                                         }
@@ -1153,6 +1163,9 @@ impl GenerateProgram for UnaryExp {
                             match value_data_in_cur_func(program, ctx, dst).ty().kind() {
                                 TypeKind::Pointer(base) => match base.kind() {
                                     TypeKind::Int32 => {
+                                        if !fully_deref {
+                                            return Ok(dst);
+                                        }
                                         let load = cur_func_mut(program, ctx)
                                             .dfg_mut()
                                             .new_value()
@@ -1160,7 +1173,20 @@ impl GenerateProgram for UnaryExp {
                                         push_back_value_as_ins(program, ctx, load)?;
                                         Ok(load)
                                     }
-                                    TypeKind::Array(_, _) => Ok(dst),
+                                    TypeKind::Array(_, _) => {
+                                        let zero = cur_func_mut(program, ctx)
+                                            .dfg_mut()
+                                            .new_value()
+                                            .integer(0);
+                                        if !is_ptr_ptr {
+                                            dst = cur_func_mut(program, ctx)
+                                                .dfg_mut()
+                                                .new_value()
+                                                .get_elem_ptr(dst, zero);
+                                            push_back_value_as_ins(program, ctx, dst)?;
+                                        }
+                                        Ok(dst)
+                                    }
                                     _ => unreachable!(),
                                 },
                                 _ => unreachable!(),
@@ -1209,11 +1235,6 @@ impl GenerateProgram for FuncCall {
                     .kind()
                     .clone()
             };
-
-            // 子表达式解析结果为指针时, 说明是未全解引用的数组入参（at see lval), 此时我们透传出数组首元素的地址
-            if let TypeKind::Pointer(_) = type_kind {
-                val = get_array_pointer(program, ctx, val);
-            }
             call_params.push(val);
         }
         let func = ctx.scopes.look_up_func(&self.func_name).unwrap().clone();
@@ -1224,17 +1245,6 @@ impl GenerateProgram for FuncCall {
         push_back_value_as_ins(program, ctx, call)?;
         Ok(call)
     }
-}
-
-fn get_array_pointer(program: &mut Program, ctx: &mut Context, val: Value) -> Value {
-    let zero = cur_func_mut(program, ctx).dfg_mut().new_value().integer(0);
-    let array_ptr = cur_func_mut(program, ctx)
-        .dfg_mut()
-        .new_value()
-        .get_elem_ptr(val, zero);
-    push_back_value_as_ins(program, ctx, array_ptr)
-        .expect("failed to add ptr of array 1st element");
-    array_ptr
 }
 
 fn register_binary(
@@ -1347,7 +1357,7 @@ fn add_sysy_lib_func(program: &mut Program, ctx: &mut Context) {
     let dec5 = FunctionData::new_decl("@putch".to_owned(), vec![Type::get_i32()], Type::get_unit());
     let dec6 = FunctionData::new_decl(
         "@putarray".to_owned(),
-        vec![Type::get_pointer(Type::get_i32()), Type::get_i32()],
+        vec![Type::get_i32(), Type::get_pointer(Type::get_i32())],
         Type::get_unit(),
     );
     let dec7 = FunctionData::new_decl("@starttime".to_owned(), vec![], Type::get_unit());

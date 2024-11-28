@@ -17,7 +17,7 @@ lalrpop_mod!(sysy);
 fn main() -> Result<()> {
     Type::set_ptr_size(4);
     let input = "hello.c";
-    let mode = "-123".to_owned();
+    let mode = "-koopa".to_owned();
     let output = "hello.koopa";
 
     // let mut args = args();
