@@ -3,6 +3,7 @@ use crate::asmgen::Context;
 use crate::irgen::{ Error, Result };
 use koopa::ir::entities::ValueData;
 use koopa::ir::{ BasicBlock, BinaryOp, FunctionData, TypeKind, Value, ValueKind };
+use std::ops::Deref;
 use std::{ fs::File, io::Write };
 // koopa IR => ASM
 pub trait GenerateAsm {
@@ -55,14 +56,10 @@ impl GenerateAsm for koopa::ir::FunctionData {
         let name = self.name()[1..].to_string();
         writeln!(file, "{}:", name);
         ctx.alloc_on_stack(self);
-        writeln!(file, "  addi  sp, sp, -{}", ctx.cur_func_info.as_ref().unwrap().stack_allocation);
-
+        inc_reg(file, &"sp".to_string(), ctx.cur_func_info.as_ref().unwrap().stack_allocation);
         if !ctx.cur_func_info.as_ref().unwrap().is_leaf_func {
-            writeln!(
-                file,
-                "    sw  ra, {}(sp)",
-                ctx.cur_func_info.as_ref().unwrap().stack_allocation - 4
-            );
+            let offset = ctx.cur_func_info.as_ref().unwrap().stack_allocation - 4;
+            write_by_offset(file, "ra", "sp", offset);
         }
         for (bb, node) in self.layout().bbs() {
             if let Some(name) = ctx.look_up_label(*bb) {
@@ -114,7 +111,7 @@ impl GenerateAsm for koopa::ir::entities::ValueData {
                     let init = ctx.prog.borrow_value(global_alloc.init());
                     match init.kind() {
                         ValueKind::ZeroInit(_) => {
-                            writeln!(file, "  .zero {}", value_data.ty().size());
+                            writeln!(file, "  .zero {}", Context::size(value_data.deref()));
                         }
                         ValueKind::Integer(int) => {
                             writeln!(file, "  .word {}", int.value());
@@ -144,29 +141,15 @@ impl GenerateAsm for koopa::ir::entities::ValueData {
             ValueKind::Return(ret) => {
                 if let Some(value) = ret.value() {
                     let res_val = value.generate(ctx)?;
-                    match res_val {
-                        InsData::Int(i) => {
-                            writeln!(file, "  li    a0, {}", i);
-                        }
-                        InsData::StackSlot(offset) => {
-                            writeln!(file, "  lw    a0, {}(sp)", offset);
-                        }
-                        _ => unimplemented!(),
-                    }
+                    res_val.write_to(file, &"a0".to_string());
                 }
                 if !ctx.cur_func_info.as_ref().unwrap().is_leaf_func {
-                    writeln!(
-                        file,
-                        "    lw  ra, {}(sp)",
-                        ctx.cur_func_info.as_ref().unwrap().stack_allocation - 4
-                    );
+                    let ra_addr_offset = ctx.cur_func_info.as_ref().unwrap().stack_allocation - 4;
+                    load_by_offset(file, "ra", "sp", ra_addr_offset);
                 }
                 // write epilogue at ext point
-                writeln!(
-                    file,
-                    "  addi  sp, sp,  {}",
-                    ctx.cur_func_info.as_ref().unwrap().stack_allocation
-                );
+                let stack_space = ctx.cur_func_info.as_ref().unwrap().stack_allocation;
+                inc_reg(file, "sp", stack_space);
                 writeln!(file, "  ret");
                 Ok(())
             }
@@ -178,22 +161,7 @@ impl GenerateAsm for koopa::ir::entities::ValueData {
             }
 
             ValueKind::Store(store) => {
-                let left_reg: String = match store.value().generate(ctx)? {
-                    InsData::Int(i) => {
-                        if i != 0 {
-                            writeln!(file, "  li    t0, {}", i);
-                            "t0".into()
-                        } else {
-                            "x0".into()
-                        }
-                    }
-                    InsData::StackSlot(offset) => {
-                        writeln!(file, "  lw    t0, {}(sp)", offset);
-                        "t0".into()
-                    }
-                    InsData::Reg(reg) => reg,
-                    _ => unimplemented!(),
-                };
+                let left_reg = load_to_reg_with_default(file, ctx, store.value(), "t0")?;
                 match store.dest().generate(ctx)? {
                     InsData::StackSlot(offset) => {
                         if ctx.is_ptr(store.dest()) {
@@ -233,50 +201,18 @@ impl GenerateAsm for koopa::ir::entities::ValueData {
                     _ => unreachable!(),
                 }
 
-                if let InsData::StackSlot(self_offset) = ctx.cur_value.unwrap().generate(ctx)? {
-                    writeln!(file, "  sw    t0, {}(sp)", self_offset);
-                }
+                write_to_dst_value(file, ctx, ctx.cur_value.unwrap(), "t0")?;
+
                 Ok(())
             }
             ValueKind::Binary(binary) => {
                 let lhs = binary.lhs();
                 let rhs = binary.rhs();
-                let left = lhs.generate(ctx)?;
+                let left_reg = load_to_reg_with_default(file, ctx, lhs, "t0")?;
+                let right_reg = load_to_reg_with_default(file, ctx, rhs, "t1")?;
+                generate_op_asm(file, binary.op(), &left_reg, &right_reg, &"t0".into());
+                write_to_dst_value(file, ctx, ctx.cur_value.unwrap(), "t0")?;
 
-                let left_reg = match left {
-                    InsData::Int(i) => {
-                        if i != 0 {
-                            writeln!(file, "  li    t0, {}", i);
-                            "t0".into()
-                        } else {
-                            "x0".into()
-                        }
-                    }
-                    InsData::StackSlot(offset) => {
-                        writeln!(file, "  lw    t0, {}(sp)", offset);
-                        "t0".into()
-                    }
-                    _ => unimplemented!(),
-                };
-                let right = rhs.generate(ctx)?;
-
-                let right_reg = match right {
-                    InsData::Int(i) => {
-                        writeln!(file, "  li    t1, {}", i);
-                        "t1".into()
-                    }
-                    InsData::StackSlot(offset) => {
-                        writeln!(file, "  lw    t1, {}(sp)", offset);
-                        "t1".into()
-                    }
-
-                    _ => unimplemented!(),
-                };
-                let result = "t0".into();
-                generate_op_asm(file, binary.op(), &left_reg, &right_reg, &result);
-                if let InsData::StackSlot(offset) = ctx.cur_value.unwrap().generate(ctx)? {
-                    writeln!(file, "  sw    t0, {}(sp)", offset);
-                }
                 Ok(())
             }
 
@@ -313,9 +249,7 @@ impl GenerateAsm for koopa::ir::entities::ValueData {
                     "  call  {}",
                     ctx.prog.func(func_call.callee()).name()[1..].to_string()
                 );
-                if let Ok(offset) = ctx.find_value_stack_offset(ctx.cur_value.unwrap()) {
-                    writeln!(file, "  sw    a0, {}(sp)", offset);
-                }
+                write_to_dst_value(file, ctx, ctx.cur_value.unwrap(), "a0")?;
                 Ok(())
             }
             _ => {
@@ -330,15 +264,7 @@ impl GenerateAsm for koopa::ir::values::Branch {
     type Out = ();
     fn generate(&self, file: &mut File, ctx: &mut Context) -> Result<Self::Out> {
         let value = self.cond().generate(ctx)?;
-        match value {
-            InsData::StackSlot(offset) => {
-                writeln!(file, "  lw    t0, {}(sp)", offset);
-            }
-            InsData::Int(inst_num) => {
-                writeln!(file, "  li    t0, {}", inst_num);
-            }
-            _ => unimplemented!(),
-        }
+        value.write_to(file, &"t0".to_string());
         let true_bb = self.true_bb();
         let false_bb = self.false_bb();
         let mut true_block_name = ctx.cur_func().dfg().bb(true_bb).name().as_ref().unwrap().clone();
@@ -391,16 +317,9 @@ impl GenerateAsm for koopa::ir::values::GetPtr {
              */
 
         // 读取Src的地址,写到t0寄存器(基址)
-        let src_address = self.src().generate(ctx)?;
-        if let InsData::StackSlot(offset) = src_address {
-            if ctx.is_ptr(self.src()) {
-                writeln!(file, "  lw   t0 , {}(sp)", offset);
-            } else {
-                writeln!(file, "  addi t0, sp, {}", offset);
-            }
-        } else if let InsData::GlobalVar(name) = src_address {
-            writeln!(file, "  la    t0, {}", name);
-        }
+        let is_ptr = ctx.is_ptr(self.src());
+        let src_data = self.src().generate(ctx)?;
+        src_data.write_address_to(file, is_ptr, "t0");
 
         self.index().generate(ctx)?.write_to(file, &"t1".to_string());
 
@@ -413,8 +332,7 @@ impl GenerateAsm for koopa::ir::values::GetPtr {
         writeln!(file, "  mul t1, t1, t2");
         writeln!(file, "  add t0, t0, t1");
 
-        let dst = ctx.find_value_stack_offset(ctx.cur_value.unwrap())?;
-        writeln!(file, "  sw  t0, {}(sp)", dst);
+        write_to_dst_value(file, ctx, ctx.cur_value.unwrap(), "t0")?;
         Ok(())
     }
 }
@@ -432,16 +350,9 @@ impl GenerateAsm for koopa::ir::values::GetElemPtr {
              */
 
         // 读取Src的地址,写到t0寄存器(基址)
-        let src_address = self.src().generate(ctx)?;
-        if let InsData::StackSlot(offset) = src_address {
-            if ctx.is_ptr(self.src()) {
-                writeln!(file, "  lw   t0 , {}(sp)", offset);
-            } else {
-                writeln!(file, "  addi t0, sp, {}", offset);
-            }
-        } else if let InsData::GlobalVar(name) = src_address {
-            writeln!(file, "  la    t0, {}", name);
-        }
+        let is_ptr = ctx.is_ptr(self.src());
+        let src_data = self.src().generate(ctx)?;
+        src_data.write_address_to(file, is_ptr, "t0");
 
         self.index().generate(ctx)?.write_to(file, &"t1".to_string());
 
@@ -454,11 +365,11 @@ impl GenerateAsm for koopa::ir::values::GetElemPtr {
         writeln!(file, "  mul t1, t1, t2");
         writeln!(file, "  add t0, t0, t1");
 
-        let dst = ctx.find_value_stack_offset(ctx.cur_value.unwrap())?;
-        writeln!(file, "  sw  t0, {}(sp)", dst);
+        write_to_dst_value(file, ctx, ctx.cur_value.unwrap(), "t0")?;
         Ok(())
     }
 }
+
 //返回当前value在作为别的指令的操作数时，如何生成代码
 impl<'a> GenerateInsData<'a> for koopa::ir::Value {
     type Out = InsData<'a>;
@@ -629,9 +540,12 @@ impl<'a> Context<'a> {
         !value_data.ty().is_unit() || matches!(value_data.kind(), ValueKind::Alloc(_))
     }
 
-    fn size(valueData: &ValueData) -> usize {
-        if let ValueKind::Alloc(_) = valueData.kind() {
-            if let TypeKind::Pointer(base) = valueData.ty().kind() {
+    fn size(value_data: &ValueData) -> usize {
+        if
+            matches!(value_data.kind(), ValueKind::Alloc(_)) ||
+            matches!(value_data.kind(), ValueKind::GlobalAlloc(_))
+        {
+            if let TypeKind::Pointer(base) = value_data.ty().kind() {
                 return base.size();
             }
         }
@@ -683,15 +597,11 @@ fn label_name_1(str: &String) -> String {
 }
 
 impl<'a> InsData<'a> {
-    fn write_to(&self, file: &mut File, dst_reg: &String) {
+    fn write_to<T: std::fmt::Display>(&self, file: &mut File, dst_reg: T) {
         match self {
-            InsData::StackSlot(offset) => {
-                writeln!(file, "  lw   {} , {}(sp)", dst_reg, offset);
-            }
+            InsData::StackSlot(offset) => { load_by_offset(file, dst_reg, "sp", *offset) }
             InsData::Reg(reg) => {
-                if reg != dst_reg {
-                    writeln!(file, "  lw  {}, {}", dst_reg, reg);
-                }
+                writeln!(file, "  mv  {}, {}", dst_reg, reg);
             }
             InsData::GlobalVar(name) => {
                 writeln!(file, "  la    {}, {}", dst_reg, name);
@@ -702,4 +612,94 @@ impl<'a> InsData<'a> {
             }
         }
     }
+
+    fn write_address_to<T: std::fmt::Display>(&self, file: &mut File, is_ptr: bool, dst_reg: T) {
+        match self {
+            InsData::StackSlot(offset) => {
+                if is_ptr {
+                    load_by_offset(file, dst_reg, "sp", *offset);
+                } else {
+                    writeln!(file, "  li    {},  {}", dst_reg, offset);
+                    writeln!(file, "  add  {} , sp , {}", dst_reg, dst_reg);
+                }
+            }
+            InsData::GlobalVar(name) => {
+                writeln!(file, "  la    {}, {}", dst_reg, name);
+            }
+            _ => unreachable!(),
+        }
+    }
+}
+
+// 目标位置的值写到dst寄存器
+fn load_by_offset<T: std::fmt::Display, U: std::fmt::Display>(
+    file: &mut File,
+    dst: T,
+    src_base_address: U,
+    offset: i32
+) {
+    if offset >= -2048 && offset < 2048 {
+        writeln!(file, "  lw   {} , {}({})", dst, offset, src_base_address);
+    } else {
+        writeln!(file, "  li   {} , {}", dst, offset);
+        writeln!(file, "  add   {} , {}, {}", dst, src_base_address, dst);
+        writeln!(file, "  lw   {} , 0({})", dst, dst);
+    }
+}
+
+//从src寄存器加载值到目标位置
+// 使用T3暂存位置
+fn write_by_offset<T: std::fmt::Display>(file: &mut File, src: T, dst_base_addr: T, offset: i32) {
+    if offset >= -2048 && offset < 2048 {
+        writeln!(file, "  sw   {} , {}({})", src, offset, dst_base_addr);
+    } else {
+        writeln!(file, "  li   t3 , {}", offset);
+        writeln!(file, "  add   t3 , t3, {}", dst_base_addr);
+        writeln!(file, "  sw   {} , 0(t3)", src);
+    }
+}
+
+fn inc_reg<T: std::fmt::Display>(file: &mut File, reg: T, increment: i32) {
+    if increment >= -2048 && increment < 2048 {
+        writeln!(file, "  addi  {}, {}, {}", reg, reg, increment);
+    } else {
+        writeln!(file, "  li   t3 , {}", increment);
+        writeln!(file, "  add  {}, t3, {}", reg, reg);
+    }
+}
+
+// 把某个value load到寄存器中,有特殊情况返回特定寄存器,否则返回入参指定的寄存器
+fn load_to_reg_with_default(
+    file: &mut File,
+    ctx: &mut Context,
+    value: Value,
+    default_reg: &'static str
+) -> Result<String> {
+    let ins_data = value.generate(ctx)?;
+    let reg: String = match ins_data {
+        InsData::Int(0) => { "x0".to_string() }
+        InsData::Reg(reg) => reg,
+        _ => {
+            ins_data.write_to(file, &default_reg);
+            default_reg.into()
+        }
+    };
+    Ok(reg)
+}
+
+// 把某个value load到寄存器中,有特殊情况返回特定寄存器,否则返回入参指定的寄存器
+fn write_to_dst_value(
+    file: &mut File,
+    ctx: &mut Context,
+    value: Value,
+    src_reg: &'static str
+) -> Result<()> {
+    let ins_data = value.generate(ctx)?;
+    match ins_data {
+        InsData::StackSlot(offset) => {
+            write_by_offset(file, src_reg, "sp", offset);
+        }
+        _ => {}
+    }
+    Ok(())
 }
