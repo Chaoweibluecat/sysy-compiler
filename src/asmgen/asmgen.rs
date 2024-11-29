@@ -19,8 +19,8 @@ impl GenerateAsm for koopa::ir::Program {
     type Out = ();
 
     fn generate(&self, file: &mut File, ctx: &mut Context) -> Result<Self::Out> {
-        writeln!(file, ".data");
         for value in self.inst_layout() {
+            writeln!(file, "  .data");
             if value.is_global() {
                 if let Some(value_data) = self.borrow_values().get(value) {
                     ctx.cur_value = Some(*value);
@@ -606,7 +606,7 @@ impl<'a> Context<'a> {
                 if self.need_alloc(value_data) {
                     self.value_2_stack_offset.insert(val, offset as i32);
                     println!("alloc value {:#?} at {}", val, offset);
-                    offset += value_data.ty().size();
+                    offset += Self::size(value_data);
                 } else {
                     println!("no alloc for value {:#?} ", val);
                 }
@@ -627,6 +627,15 @@ impl<'a> Context<'a> {
     // todo 记一下
     fn need_alloc(&self, value_data: &ValueData) -> bool {
         !value_data.ty().is_unit() || matches!(value_data.kind(), ValueKind::Alloc(_))
+    }
+
+    fn size(valueData: &ValueData) -> usize {
+        if let ValueKind::Alloc(_) = valueData.kind() {
+            if let TypeKind::Pointer(base) = valueData.ty().kind() {
+                return base.size();
+            }
+        }
+        4
     }
 
     fn find_value_stack_offset(&self, value: Value) -> Result<i32> {
@@ -677,11 +686,11 @@ impl<'a> InsData<'a> {
     fn write_to(&self, file: &mut File, dst_reg: &String) {
         match self {
             InsData::StackSlot(offset) => {
-                writeln!(file, "  lw ,  {} , {}(sp)", dst_reg, offset);
+                writeln!(file, "  lw   {} , {}(sp)", dst_reg, offset);
             }
             InsData::Reg(reg) => {
                 if reg != dst_reg {
-                    writeln!(file, "  lw , {}, {}", dst_reg, reg);
+                    writeln!(file, "  lw  {}, {}", dst_reg, reg);
                 }
             }
             InsData::GlobalVar(name) => {
