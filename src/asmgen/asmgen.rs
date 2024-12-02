@@ -189,7 +189,7 @@ impl GenerateAsm for koopa::ir::entities::ValueData {
             ValueKind::Load(load) => {
                 load.src().generate(ctx)?.write_to(file, "t0")?;
                 if ctx.is_ptr(load.src()) {
-                    load_by_offset(file, "t0", "s0", 0)?;
+                    load_by_offset(file, "t0", "t0", 0)?;
                 }
 
                 // load.src().generate(ctx)?.write_address_to(file, is_ptr, dst_reg);
@@ -218,7 +218,6 @@ impl GenerateAsm for koopa::ir::entities::ValueData {
                 let right_reg = load_to_reg_with_default(file, ctx, rhs, "t1")?;
                 generate_op_asm(file, binary.op(), &left_reg, &right_reg, &"t0".into())?;
                 write_to_dst_value(file, ctx, ctx.cur_value.unwrap(), "t0")?;
-
                 Ok(())
             }
 
@@ -241,7 +240,7 @@ impl GenerateAsm for koopa::ir::entities::ValueData {
                     ctx.prog.func(func_call.callee()).name()[1..].to_string()
                 )?;
                 // 注意funcall可能会返回void,对于unit type,此时不用写回逻辑位置
-                if let Ok(_) = ctx.find_value_stack_offset(ctx.cur_value.unwrap()) {
+                if let Some(_) = ctx.find_value_stack_offset(ctx.cur_value.unwrap()) {
                     write_to_dst_value(file, ctx, ctx.cur_value.unwrap(), "a0")?;
                 }
                 Ok(())
@@ -390,7 +389,7 @@ impl<'a> GenerateInsData<'a> for koopa::ir::Value {
             // global_alloc在此前分支中返回
             ValueKind::GlobalAlloc(_) => { unreachable!() }
             // 否则返回自身在栈上的偏移量
-            _ => Ok(InsData::StackSlot(ctx.find_value_stack_offset(*self)?)),
+            _ => Ok(InsData::StackSlot(ctx.find_value_stack_offset(*self).expect("no such value"))),
         }
     }
 }
@@ -540,9 +539,9 @@ impl<'a> Context<'a> {
         4
     }
 
-    fn find_value_stack_offset(&self, value: Value) -> Result<i32> {
+    fn find_value_stack_offset(&self, value: Value) -> Option<i32> {
         println!("look ip value {:#?}", value.clone());
-        Ok(self.value_2_stack_offset.get(&value).unwrap().clone())
+        self.value_2_stack_offset.get(&value).map(|&value| value)
     }
 
     // 我们让对functiondata的变量往往是作为临时变量存在；如果函数中一直存在这个引用，那么相当于一直有program的引用
