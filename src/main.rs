@@ -16,16 +16,16 @@ lalrpop_mod!(sysy);
 
 fn main() -> Result<()> {
     Type::set_ptr_size(4);
-    // let input = "hello.c";
-    // let mode = "-123".to_owned();
-    // let output = "hello.koopa";
+    let input = "hello.c";
+    let mode = "-123".to_owned();
+    let output = "hello.koopa";
 
-    let mut args = args();
-    args.next();
-    let mode = args.next().unwrap();
-    let input = args.next().unwrap();
-    args.next();
-    let output: String = args.next().unwrap();
+    // let mut args = args();
+    // args.next();
+    // let mode = args.next().unwrap();
+    // let input = args.next().unwrap();
+    // args.next();
+    // let output: String = args.next().unwrap();
 
     let output_2 = "hello.asm";
     let input = read_to_string(input)?;
@@ -36,17 +36,11 @@ fn main() -> Result<()> {
     let prog = generate_program(&comp_unit).unwrap();
 
     if mode.as_str() == "-koopa" {
-        KoopaGenerator::from_path(output)
-            .unwrap()
-            .generate_on(&prog)
-            .unwrap();
+        KoopaGenerator::from_path(output).unwrap().generate_on(&prog).unwrap();
     } else if mode.as_str() == "-riscv" {
         generate_asm(&prog, &output).expect("failed to generate asm");
     } else {
-        KoopaGenerator::from_path(output)
-            .unwrap()
-            .generate_on(&prog)
-            .unwrap();
+        KoopaGenerator::from_path(output).unwrap().generate_on(&prog).unwrap();
         generate_asm(&prog, &output_2).expect("failed to generate asm");
     }
 
