@@ -3,7 +3,7 @@ use std::{ collections::HashMap, fs::File };
 use asmgen::GenerateAsm;
 use koopa::ir::{ BasicBlock, Function, Program, Value };
 mod asmgen;
-use crate::irgen::Result;
+use std::io::Result;
 
 pub struct Context<'a> {
     prog: &'a Program,

@@ -1096,11 +1096,11 @@ impl GenerateProgram for LVal {
                     push_back_value_as_ins(program, ctx, dst)?;
                 }
 
-                if dst.is_global() {
-                    let load = cur_func_mut(program, ctx).dfg_mut().new_value().load(dst);
-                    push_back_value_as_ins(program, ctx, load)?;
-                    return Ok(load);
-                }
+                // if dst.is_global() {
+                //     let load = cur_func_mut(program, ctx).dfg_mut().new_value().load(dst);
+                //     push_back_value_as_ins(program, ctx, load)?;
+                //     return Ok(load);
+                // }
                 // 是上层传递的指针 且没有经过任何一次解引用,那么透传load过一次的值
                 // int arr[][10] => arr 直接透传传进来的arr指针的值 *i32
                 if is_ptr_ptr {
@@ -1114,7 +1114,13 @@ impl GenerateProgram for LVal {
                 // int arr[10][10] => arr[0][0] 得到 *i32,load
                 // int arr[][10] => arr[0] 得到 *(i32[10]),再getEle得到 *i32,再load出来
                 // int arr[] => arr, 栈上的arr是**i32,默认第一次load后是*i32,但是没有解引用过,is_ptr_ptr为false,在上面的分支中就返回 *i32
-                match value_data_in_cur_func(program, ctx, dst).ty().kind() {
+
+                let kind: &TypeKind = if dst.is_global() {
+                    &program.borrow_value(dst).ty().kind().clone()
+                } else {
+                    value_data_in_cur_func(program, ctx, dst).ty().kind()
+                };
+                match kind {
                     TypeKind::Pointer(base) =>
                         match base.kind() {
                             TypeKind::Int32 => {
